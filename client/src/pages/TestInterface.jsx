@@ -13,10 +13,12 @@ export default function TestInterface() {
     const [answers, setAnswers] = useState({});
     const [wrongWords, setWrongWords] = useState([]);
     const [showWrongWordsReview, setShowWrongWordsReview] = useState(false);
+    const [rangeStart, setRangeStart] = useState(0);
     const [rangeEnd, setRangeEnd] = useState(0);
     const [allTestsComplete, setAllTestsComplete] = useState(false);
     const [firstAttemptScore, setFirstAttemptScore] = useState(null);
     const [retryCount, setRetryCount] = useState(0);
+    const [initialTestType, setInitialTestType] = useState('new_words');
 
     const navigate = useNavigate();
 
@@ -58,7 +60,15 @@ export default function TestInterface() {
                 const reviewWordsData = data.reviewWords || [];
                 setNewWords(newWordsData);
                 setReviewWords(reviewWordsData);
+                setRangeStart(data.rangeStart || 0);
                 setRangeEnd(data.rangeEnd || 0);
+
+                // Determine initial test type
+                if (newWordsData.length > 0) {
+                    setInitialTestType('new_words');
+                } else {
+                    setInitialTestType('review_words');
+                }
 
                 if (newWordsData.length > 0) {
                     setCurrentTestWords(shuffleArray(newWordsData));
@@ -182,11 +192,11 @@ export default function TestInterface() {
                 userId,
                 score,
                 details: Object.entries(answers).map(([id, val]) => ({ word_id: id, ...val })),
-                rangeStart: 0,
+                rangeStart,
                 rangeEnd,
                 firstAttemptScore: firstAttemptScore || score,
                 retryCount: retryCount,
-                testType: testMode === 'new' ? 'new_words' : 'review_words',
+                testType: initialTestType,
                 completed: true
             }),
         });

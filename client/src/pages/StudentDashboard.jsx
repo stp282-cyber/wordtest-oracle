@@ -59,19 +59,14 @@ export default function StudentDashboard() {
         const targetDate = new Date(date);
         targetDate.setHours(0, 0, 0, 0);
 
-        // Calculate word range for the selected date
         const wordRange = getWordRangeForDate(date);
 
-        // If clicking today, use current_word_index (don't store in localStorage)
         if (targetDate.getTime() === today.getTime()) {
             localStorage.removeItem('studyStartIndex');
             localStorage.removeItem('studyEndIndex');
         } else if (wordRange) {
-            // For other dates, store the calculated range
-            // Note: current_word_index is 0-based count, but wordRange.start is already 1-based word_number
-            // We need to convert it back to 0-based count for the backend
-            localStorage.setItem('studyStartIndex', (wordRange.start - 1).toString());
-            localStorage.setItem('studyEndIndex', (wordRange.end - 1).toString());
+            localStorage.setItem('studyStartIndex', wordRange.start.toString());
+            localStorage.setItem('studyEndIndex', wordRange.end.toString());
         }
 
         navigate('/student/study');
@@ -84,7 +79,6 @@ export default function StudentDashboard() {
         return studyDays.includes(dayOfWeek);
     };
 
-    // Calculate word range for a specific date based on current_word_index
     const getWordRangeForDate = (date) => {
         if (!settings) return null;
 
@@ -93,18 +87,14 @@ export default function StudentDashboard() {
         const targetDate = new Date(date);
         targetDate.setHours(0, 0, 0, 0);
 
-        // current_word_index is 0-based count (number of completed words)
         const currentIndex = settings.current_word_index || 0;
         const wordsPerSession = settings.words_per_session || 10;
 
-        // Check if today is completed
         const todayCompleted = history.some(h => isSameDay(new Date(h.date), today));
 
-        // Count study days between today and target date
         let daysDifference = 0;
 
         if (targetDate < today) {
-            // For past dates, count backwards (how many uncompleted study days)
             const daysInRange = eachDayOfInterval({
                 start: targetDate,
                 end: new Date(today.getTime() - 24 * 60 * 60 * 1000)
@@ -116,10 +106,8 @@ export default function StudentDashboard() {
                 }
             }
         } else if (targetDate > today) {
-            // For future dates, count forwards
-            // If today is not completed, start counting from today
             if (!todayCompleted && isStudyDay(today)) {
-                daysDifference = 0; // Today uses current index
+                daysDifference = 0;
             }
 
             const daysInRange = eachDayOfInterval({
@@ -133,12 +121,9 @@ export default function StudentDashboard() {
                 }
             }
         } else {
-            // targetDate === today
             daysDifference = 0;
         }
 
-        // Calculate word_number range (1-based)
-        // currentIndex is 0-based count, so next word to study is currentIndex + 1
         const baseWordNumber = currentIndex + 1;
         const startWordNumber = baseWordNumber + (daysDifference * wordsPerSession);
         const endWordNumber = startWordNumber + wordsPerSession;
@@ -184,7 +169,7 @@ export default function StudentDashboard() {
                         <h1 className="text-xl font-bold text-gray-800">나의 학습 계획</h1>
                     </div>
                     <div className="flex items-center space-x-4">
-                        <span className="text-gray-600">안녕하세요, <b>{username}</b>님</span>
+                        <span className="text-gray-600">안녕하세요, <b>{localStorage.getItem('name') || username}</b>님</span>
                         <button onClick={handleLogout} className="p-2 text-gray-500 hover:text-red-600 transition-colors">
                             <LogOut className="w-5 h-5" />
                         </button>

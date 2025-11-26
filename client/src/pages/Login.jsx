@@ -25,6 +25,7 @@ export default function Login() {
                 localStorage.setItem('token', data.token);
                 localStorage.setItem('role', data.role);
                 localStorage.setItem('username', data.username);
+                localStorage.setItem('name', data.name);
                 localStorage.setItem('userId', JSON.parse(atob(data.token.split('.')[1])).id); // Extract ID from token
 
                 if (data.role === 'admin') {

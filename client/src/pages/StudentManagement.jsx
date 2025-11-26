@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { UserPlus, Users, Settings, Calendar } from 'lucide-react';
+import { UserPlus, Users, Calendar, X } from 'lucide-react';
 
 export default function StudentManagement() {
     const [students, setStudents] = useState([]);
@@ -7,6 +7,8 @@ export default function StudentManagement() {
     const [classes, setClasses] = useState([]);
     const [newStudent, setNewStudent] = useState({ username: '', password: '', name: '' });
     const [editingStudent, setEditingStudent] = useState(null);
+    const [showAbsenceModal, setShowAbsenceModal] = useState(null);
+    const [absenceDate, setAbsenceDate] = useState('');
 
     const weekDays = [
         { value: '0', label: '일' },
@@ -47,6 +49,30 @@ export default function StudentManagement() {
         }
     };
 
+    const handleMarkAbsent = async (studentId) => {
+        if (!absenceDate) {
+            alert('날짜를 선택해주세요');
+            return;
+        }
+
+        try {
+            const res = await fetch(`http://localhost:5000/api/admin/students/${studentId}/absence`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ absenceDate })
+            });
+
+            if (res.ok) {
+                alert('공강 처리되었습니다. 학생의 진도가 자동으로 조정됩니다.');
+                setShowAbsenceModal(null);
+                setAbsenceDate('');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('공강 처리 실패');
+        }
+    };
+
     const handleUpdateClass = async (studentId, classId) => {
         try {
             const res = await fetch(`http://localhost:5000/api/admin/students/${studentId}/class`, {
@@ -56,7 +82,6 @@ export default function StudentManagement() {
             });
 
             if (res.ok) {
-                // Update local state immediately for better UX
                 setStudents(students.map(s =>
                     s.id === studentId
                         ? { ...s, class_id: classId, class_name: classes.find(c => c.id == classId)?.name }
@@ -112,7 +137,9 @@ export default function StudentManagement() {
                     book_name: student.book_name,
                     study_days: student.study_days,
                     words_per_session: student.words_per_session,
-                    current_word_index: student.current_word_index
+                    current_word_index: student.current_word_index,
+                    password: student.newPassword,
+                    name: student.name
                 })
             });
 
@@ -218,6 +245,13 @@ export default function StudentManagement() {
                                         <p className="text-sm text-gray-500">ID: {student.username}</p>
                                     </div>
                                     <div className="flex items-center space-x-2">
+                                        <button
+                                            onClick={() => setShowAbsenceModal(student.id)}
+                                            className="px-3 py-1 bg-orange-500 text-white text-sm rounded hover:bg-orange-600 flex items-center space-x-1"
+                                        >
+                                            <Calendar className="w-4 h-4" />
+                                            <span>공강 처리</span>
+                                        </button>
                                         {editingStudent === student.id ? (
                                             <>
                                                 <button
@@ -227,10 +261,7 @@ export default function StudentManagement() {
                                                     저장
                                                 </button>
                                                 <button
-                                                    onClick={() => {
-                                                        setEditingStudent(null);
-                                                        fetchStudents();
-                                                    }}
+                                                    onClick={() => setEditingStudent(null)}
                                                     className="px-4 py-1 bg-gray-400 text-white text-sm rounded hover:bg-gray-500"
                                                 >
                                                     취소
@@ -239,15 +270,14 @@ export default function StudentManagement() {
                                         ) : (
                                             <button
                                                 onClick={() => setEditingStudent(student.id)}
-                                                className="p-2 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
-                                                title="설정 수정"
+                                                className="px-4 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
                                             >
-                                                <Settings className="w-4 h-4" />
+                                                수정
                                             </button>
                                         )}
                                         <button
                                             onClick={() => handleDeleteStudent(student.id)}
-                                            className="px-3 py-1 text-red-600 hover:bg-red-50 rounded-lg transition-colors text-sm"
+                                            className="px-4 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
                                         >
                                             삭제
                                         </button>
@@ -255,6 +285,37 @@ export default function StudentManagement() {
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                    {/* Name & Password (Edit Mode) */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">이름 & 비밀번호 변경</label>
+                                        {editingStudent === student.id ? (
+                                            <div className="space-y-2">
+                                                <input
+                                                    type="text"
+                                                    value={student.name || ''}
+                                                    onChange={(e) => setStudents(students.map(s =>
+                                                        s.id === student.id ? { ...s, name: e.target.value } : s
+                                                    ))}
+                                                    placeholder="이름"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                                />
+                                                <input
+                                                    type="text"
+                                                    value={student.newPassword || ''}
+                                                    onChange={(e) => setStudents(students.map(s =>
+                                                        s.id === student.id ? { ...s, newPassword: e.target.value } : s
+                                                    ))}
+                                                    placeholder="새 비밀번호 (변경시에만 입력)"
+                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                                />
+                                            </div>
+                                        ) : (
+                                            <p className="text-gray-600 py-2 text-sm">
+                                                비밀번호 변경은 수정 모드에서 가능
+                                            </p>
+                                        )}
+                                    </div>
+
                                     {/* Class Selection */}
                                     <div>
                                         <label className="block text-sm font-medium text-gray-700 mb-1">반 배정</label>
@@ -329,41 +390,78 @@ export default function StudentManagement() {
                                             <p className="text-gray-600 py-2">{student.words_per_session || 10}개</p>
                                         )}
                                     </div>
-                                </div>
 
-                                {/* Study Days */}
-                                <div className="mt-4">
-                                    <label className="block text-sm font-medium text-gray-700 mb-2 flex items-center">
-                                        <Calendar className="w-4 h-4 mr-1" />
-                                        학습 요일
-                                    </label>
-                                    <div className="flex gap-2">
-                                        {weekDays.map(day => {
-                                            const isSelected = (student.study_days || '1,2,3,4,5').split(',').includes(day.value);
-                                            return (
-                                                <button
-                                                    key={day.value}
-                                                    onClick={() => editingStudent === student.id && toggleStudyDay(student, day.value)}
-                                                    disabled={editingStudent !== student.id}
-                                                    className={`px-3 py-2 rounded-lg text-sm font-medium transition-all ${isSelected
-                                                        ? 'bg-indigo-600 text-white'
-                                                        : 'bg-gray-100 text-gray-600'
-                                                        } ${editingStudent === student.id ? 'cursor-pointer hover:opacity-80' : 'cursor-default'}`}
-                                                >
-                                                    {day.label}
-                                                </button>
-                                            );
-                                        })}
+                                    {/* Study Days */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">학습 요일</label>
+                                        {editingStudent === student.id ? (
+                                            <div className="flex gap-1">
+                                                {weekDays.map(day => (
+                                                    <button
+                                                        key={day.value}
+                                                        type="button"
+                                                        onClick={() => toggleStudyDay(student, day.value)}
+                                                        className={`px-2 py-1 text-xs rounded ${(student.study_days || '1,2,3,4,5').split(',').includes(day.value)
+                                                            ? 'bg-indigo-600 text-white'
+                                                            : 'bg-gray-200 text-gray-600'
+                                                            }`}
+                                                    >
+                                                        {day.label}
+                                                    </button>
+                                                ))}
+                                            </div>
+                                        ) : (
+                                            <p className="text-gray-600 py-2">
+                                                {(student.study_days || '1,2,3,4,5').split(',').map(d => weekDays.find(wd => wd.value === d)?.label).join(', ')}
+                                            </p>
+                                        )}
                                     </div>
                                 </div>
                             </div>
                         ))}
-                        {students.length === 0 && (
-                            <p className="text-center text-gray-400 py-8">등록된 학생이 없습니다.</p>
-                        )}
                     </div>
                 </div>
             </div>
+
+            {/* Absence Modal */}
+            {showAbsenceModal && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                        <div className="flex items-center justify-between mb-4">
+                            <h3 className="text-lg font-semibold">공강 처리</h3>
+                            <button onClick={() => setShowAbsenceModal(null)} className="text-gray-400 hover:text-gray-600">
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-4">
+                            공강 처리하면 해당 날짜의 학습이 자동으로 뒤로 밀립니다.
+                        </p>
+                        <div className="mb-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-2">공강 날짜</label>
+                            <input
+                                type="date"
+                                value={absenceDate}
+                                onChange={(e) => setAbsenceDate(e.target.value)}
+                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                            />
+                        </div>
+                        <div className="flex space-x-2">
+                            <button
+                                onClick={() => handleMarkAbsent(showAbsenceModal)}
+                                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+                            >
+                                공강 처리
+                            </button>
+                            <button
+                                onClick={() => setShowAbsenceModal(null)}
+                                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+                            >
+                                취소
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

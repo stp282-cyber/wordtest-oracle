@@ -9,6 +9,7 @@ import AdminDashboard from './pages/AdminDashboard';
 import WordManagement from './pages/WordManagement';
 import StudentManagement from './pages/StudentManagement';
 import ClassManagement from './pages/ClassManagement';
+import Layout from './components/Layout';
 
 const PrivateRoute = ({ children, role }) => {
   const token = localStorage.getItem('token');
@@ -27,73 +28,75 @@ function App() {
         <Routes>
           <Route path="/login" element={<Login />} />
 
-          {/* Student Routes */}
-          <Route
-            path="/student"
-            element={
-              <PrivateRoute role="student">
-                <StudentDashboard />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/student/study"
-            element={
-              <PrivateRoute role="student">
-                <StudyPage />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/student/test"
-            element={
-              <PrivateRoute role="student">
-                <TestInterface />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/student/history"
-            element={
-              <PrivateRoute role="student">
-                <StudyHistory />
-              </PrivateRoute>
-            }
-          />
+          <Route element={<Layout />}>
+            {/* Student Routes */}
+            <Route
+              path="/student"
+              element={
+                <PrivateRoute role="student">
+                  <StudentDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/study"
+              element={
+                <PrivateRoute role="student">
+                  <StudyPage />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/test"
+              element={
+                <PrivateRoute role="student">
+                  <TestInterface />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/history"
+              element={
+                <PrivateRoute role="student">
+                  <StudyHistory />
+                </PrivateRoute>
+              }
+            />
 
-          {/* Admin Routes */}
-          <Route
-            path="/admin"
-            element={
-              <PrivateRoute role="admin">
-                <AdminDashboard />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/admin/words"
-            element={
-              <PrivateRoute role="admin">
-                <WordManagement />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/admin/students"
-            element={
-              <PrivateRoute role="admin">
-                <StudentManagement />
-              </PrivateRoute>
-            }
-          />
-          <Route
-            path="/admin/classes"
-            element={
-              <PrivateRoute role="admin">
-                <ClassManagement />
-              </PrivateRoute>
-            }
-          />
+            {/* Admin Routes */}
+            <Route
+              path="/admin"
+              element={
+                <PrivateRoute role="admin">
+                  <AdminDashboard />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/words"
+              element={
+                <PrivateRoute role="admin">
+                  <WordManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/students"
+              element={
+                <PrivateRoute role="admin">
+                  <StudentManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/classes"
+              element={
+                <PrivateRoute role="admin">
+                  <ClassManagement />
+                </PrivateRoute>
+              }
+            />
+          </Route>
 
           {/* Default Redirect */}
           <Route path="/" element={<Navigate to="/login" />} />

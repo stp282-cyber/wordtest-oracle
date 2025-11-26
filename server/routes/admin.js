@@ -1,6 +1,7 @@
 const express = require('express');
 const router = express.Router();
 const db = require('../db/database');
+const bcrypt = require('bcryptjs');
 
 // Get all students
 router.get('/students', (req, res) => {
@@ -95,34 +96,57 @@ router.put('/students/:id/progress', (req, res) => {
     }
 });
 
-// Update student settings
-router.put('/students/:id/settings', (req, res) => {
-    const { book_name, study_days, words_per_session, current_word_index } = req.body;
+// ... (existing code)
+
+// Update student settings (and user info)
+router.put('/students/:id/settings', async (req, res) => {
+    const { book_name, study_days, words_per_session, current_word_index, password, name } = req.body;
     try {
-        const updates = [];
-        const values = [];
+        // Update Settings
+        const settingsUpdates = [];
+        const settingsValues = [];
 
         if (book_name !== undefined) {
-            updates.push('book_name = ?');
-            values.push(book_name);
+            settingsUpdates.push('book_name = ?');
+            settingsValues.push(book_name);
         }
         if (study_days !== undefined) {
-            updates.push('study_days = ?');
-            values.push(study_days);
+            settingsUpdates.push('study_days = ?');
+            settingsValues.push(study_days);
         }
         if (words_per_session !== undefined) {
-            updates.push('words_per_session = ?');
-            values.push(words_per_session);
+            settingsUpdates.push('words_per_session = ?');
+            settingsValues.push(words_per_session);
         }
         if (current_word_index !== undefined) {
-            updates.push('current_word_index = ?');
-            values.push(current_word_index);
+            settingsUpdates.push('current_word_index = ?');
+            settingsValues.push(current_word_index);
         }
 
-        if (updates.length > 0) {
-            values.push(req.params.id);
-            const query = `UPDATE settings SET ${updates.join(', ')} WHERE user_id = ?`;
-            db.prepare(query).run(...values);
+        if (settingsUpdates.length > 0) {
+            settingsValues.push(req.params.id);
+            const query = `UPDATE settings SET ${settingsUpdates.join(', ')} WHERE user_id = ?`;
+            db.prepare(query).run(...settingsValues);
+        }
+
+        // Update User Info (Password, Name)
+        const userUpdates = [];
+        const userValues = [];
+
+        if (password) {
+            const hashedPassword = await bcrypt.hash(password, 10);
+            userUpdates.push('password = ?');
+            userValues.push(hashedPassword);
+        }
+        if (name !== undefined) {
+            userUpdates.push('name = ?');
+            userValues.push(name);
+        }
+
+        if (userUpdates.length > 0) {
+            userValues.push(req.params.id);
+            const query = `UPDATE users SET ${userUpdates.join(', ')} WHERE id = ?`;
+            db.prepare(query).run(...userValues);
         }
 
         res.json({ success: true });
@@ -182,6 +206,40 @@ router.put('/students/:id/class', (req, res) => {
     const { class_id } = req.body;
     try {
         db.prepare("UPDATE users SET class_id = ? WHERE id = ?").run(class_id, req.params.id);
+        res.json({ success: true });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Mark student as absent (공강 처리)
+router.post('/students/:id/absence', (req, res) => {
+    const { absenceDate } = req.body;
+    try {
+        // Add absence record
+        const stmt = db.prepare("INSERT INTO absences (user_id, absence_date) VALUES (?, ?)");
+        stmt.run(req.params.id, absenceDate);
+
+        res.json({ success: true });
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Get student absences
+router.get('/students/:id/absences', (req, res) => {
+    try {
+        const absences = db.prepare("SELECT * FROM absences WHERE user_id = ? ORDER BY absence_date DESC").all(req.params.id);
+        res.json(absences);
+    } catch (err) {
+        res.status(400).json({ error: err.message });
+    }
+});
+
+// Delete absence
+router.delete('/absences/:id', (req, res) => {
+    try {
+        db.prepare("DELETE FROM absences WHERE id = ?").run(req.params.id);
         res.json({ success: true });
     } catch (err) {
         res.status(400).json({ error: err.message });

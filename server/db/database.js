@@ -29,6 +29,7 @@ function initSchema() {
             username TEXT UNIQUE NOT NULL,
             password TEXT NOT NULL,
             role TEXT CHECK(role IN ('student', 'admin')) NOT NULL,
+            name TEXT,
             class_id INTEGER,
             FOREIGN KEY(class_id) REFERENCES classes(id)
         );
@@ -55,10 +56,15 @@ function initSchema() {
             id INTEGER PRIMARY KEY AUTOINCREMENT,
             user_id INTEGER NOT NULL,
             date TEXT DEFAULT CURRENT_TIMESTAMP,
+            scheduled_date TEXT,
             score INTEGER NOT NULL,
-            details TEXT, -- JSON string of results
+            details TEXT,
             range_start INTEGER,
             range_end INTEGER,
+            test_type TEXT,
+            first_attempt_score INTEGER,
+            retry_count INTEGER DEFAULT 0,
+            completed INTEGER DEFAULT 0,
             FOREIGN KEY(user_id) REFERENCES users(id)
         );
     `);
