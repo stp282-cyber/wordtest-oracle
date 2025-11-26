@@ -1,0 +1,140 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { ArrowLeft, Plus, Trash2, Users } from 'lucide-react';
+
+export default function ClassManagement() {
+    const [classes, setClasses] = useState([]);
+    const [newClassName, setNewClassName] = useState('');
+    const [loading, setLoading] = useState(true);
+    const navigate = useNavigate();
+
+    useEffect(() => {
+        fetchClasses();
+    }, []);
+
+    const fetchClasses = async () => {
+        try {
+            const res = await fetch('http://localhost:5000/api/admin/classes');
+            const data = await res.json();
+            if (res.ok) {
+                setClasses(data);
+            } else {
+                alert('반 목록을 불러오는데 실패했습니다.');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('서버 연결 실패');
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const handleAddClass = async (e) => {
+        e.preventDefault();
+        if (!newClassName.trim()) return;
+
+        try {
+            const res = await fetch('http://localhost:5000/api/admin/classes', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: newClassName }),
+            });
+            const data = await res.json();
+            if (res.ok) {
+                setClasses([...classes, { id: data.id, name: newClassName, created_at: new Date().toISOString() }]);
+                setNewClassName('');
+            } else {
+                alert(data.error || '반 추가 실패');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('서버 오류');
+        }
+    };
+
+    const handleDeleteClass = async (id) => {
+        if (!window.confirm('정말 이 반을 삭제하시겠습니까? 소속된 학생들의 반 정보가 초기화됩니다.')) return;
+
+        try {
+            const res = await fetch(`http://localhost:5000/api/admin/classes/${id}`, {
+                method: 'DELETE',
+            });
+            if (res.ok) {
+                setClasses(classes.filter((c) => c.id !== id));
+            } else {
+                alert('반 삭제 실패');
+            }
+        } catch (err) {
+            console.error(err);
+            alert('서버 오류');
+        }
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50 p-8">
+            <div className="max-w-4xl mx-auto">
+                <header className="flex items-center justify-between mb-8">
+                    <div className="flex items-center space-x-4">
+                        <button onClick={() => navigate('/admin')} className="p-2 hover:bg-gray-200 rounded-full transition-colors">
+                            <ArrowLeft className="w-6 h-6 text-gray-600" />
+                        </button>
+                        <h1 className="text-3xl font-bold text-gray-800">반 관리</h1>
+                    </div>
+                </header>
+
+                <div className="bg-white rounded-2xl shadow-sm p-6 mb-8">
+                    <h2 className="text-xl font-semibold mb-4 text-gray-800">새 반 추가</h2>
+                    <form onSubmit={handleAddClass} className="flex gap-4">
+                        <input
+                            type="text"
+                            value={newClassName}
+                            onChange={(e) => setNewClassName(e.target.value)}
+                            placeholder="반 이름을 입력하세요 (예: 1학년 1반)"
+                            className="flex-1 p-3 border border-gray-200 rounded-xl focus:ring-2 focus:ring-indigo-500 outline-none"
+                        />
+                        <button
+                            type="submit"
+                            className="px-6 py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-colors flex items-center gap-2"
+                        >
+                            <Plus className="w-5 h-5" />
+                            추가
+                        </button>
+                    </form>
+                </div>
+
+                <div className="bg-white rounded-2xl shadow-sm overflow-hidden">
+                    <div className="p-6 border-b border-gray-100">
+                        <h2 className="text-xl font-semibold text-gray-800">반 목록</h2>
+                    </div>
+
+                    {loading ? (
+                        <div className="p-8 text-center text-gray-500">로딩 중...</div>
+                    ) : classes.length === 0 ? (
+                        <div className="p-12 text-center text-gray-400">
+                            <Users className="w-12 h-12 mx-auto mb-3 opacity-50" />
+                            <p>등록된 반이 없습니다.</p>
+                        </div>
+                    ) : (
+                        <ul className="divide-y divide-gray-100">
+                            {classes.map((cls) => (
+                                <li key={cls.id} className="p-6 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                                    <div>
+                                        <h3 className="text-lg font-medium text-gray-900">{cls.name}</h3>
+                                        <p className="text-sm text-gray-500">ID: {cls.id}</p>
+                                    </div>
+                                    <button
+                                        onClick={() => handleDeleteClass(cls.id)}
+                                        className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
+                                        title="삭제"
+                                    >
+                                        <Trash2 className="w-5 h-5" />
+                                    </button>
+                                </li>
+                            ))}
+                        </ul>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+}
