@@ -3,7 +3,7 @@ import { UserPlus, Users, Calendar, X } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, getDocs, updateDoc, deleteDoc, doc, setDoc, query, where } from 'firebase/firestore';
 import { initializeApp } from 'firebase/app';
-import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+import { getAuth, createUserWithEmailAndPassword, sendPasswordResetEmail } from 'firebase/auth';
 
 // Need config to create a secondary app for creating users without logging out admin
 const firebaseConfig = {
@@ -154,7 +154,8 @@ export default function StudentManagement() {
                 words_per_day: student.words_per_day || {},
                 current_word_index: student.current_word_index,
                 name: student.name,
-                book_settings: student.book_settings || {}
+                book_settings: student.book_settings || {},
+                book_progress: student.book_progress || {}
             };
 
             // Note: Password update in Auth is not handled here due to client SDK limitations.
@@ -182,6 +183,19 @@ export default function StudentManagement() {
             fetchStudents();
         } catch (err) {
             alert('삭제 실패: ' + err.message);
+        }
+    };
+
+    const handleResetPassword = async (student) => {
+        if (!confirm(`${student.name} 학생의 비밀번호 재설정 이메일을 발송하시겠습니까?`)) return;
+
+        try {
+            const email = student.username.includes('@') ? student.username : `${student.username}@wordtest.com`;
+            await sendPasswordResetEmail(auth, email);
+            alert(`비밀번호 재설정 이메일이 ${email}로 발송되었습니다.`);
+        } catch (err) {
+            console.error("Error sending password reset email:", err);
+            alert('이메일 발송 실패: ' + err.message);
         }
     };
 
@@ -294,26 +308,37 @@ export default function StudentManagement() {
                                                     저장
                                                 </button>
                                                 <button
-                                                    onClick={() => setEditingStudent(null)}
+                                                    onClick={() => {
+                                                        setEditingStudent(null);
+                                                        fetchStudents();
+                                                    }}
                                                     className="px-4 py-1 bg-gray-400 text-white text-sm rounded hover:bg-gray-500"
                                                 >
                                                     취소
                                                 </button>
                                             </>
                                         ) : (
-                                            <button
-                                                onClick={() => setEditingStudent(student.id)}
-                                                className="px-4 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
-                                            >
-                                                수정
-                                            </button>
+                                            <>
+                                                <button
+                                                    onClick={() => setEditingStudent(student.id)}
+                                                    className="px-4 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
+                                                >
+                                                    수정
+                                                </button>
+                                                <button
+                                                    onClick={() => handleResetPassword(student)}
+                                                    className="px-4 py-1 bg-yellow-50 text-yellow-600 rounded-lg hover:bg-yellow-100 transition-all font-medium text-sm"
+                                                >
+                                                    비밀번호 재설정
+                                                </button>
+                                                <button
+                                                    onClick={() => handleDeleteStudent(student.id)}
+                                                    className="px-4 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
+                                                >
+                                                    삭제
+                                                </button>
+                                            </>
                                         )}
-                                        <button
-                                            onClick={() => handleDeleteStudent(student.id)}
-                                            className="px-4 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
-                                        >
-                                            삭제
-                                        </button>
                                     </div>
                                 </div>
 
@@ -396,7 +421,7 @@ export default function StudentManagement() {
                                                             </label>
 
                                                             {isActive && (
-                                                                <div className="ml-6 mt-2 grid grid-cols-2 gap-2 bg-gray-50 p-2 rounded-lg">
+                                                                <div className="ml-6 mt-2 grid grid-cols-3 gap-2 bg-gray-50 p-2 rounded-lg">
                                                                     <div>
                                                                         <label className="block text-xs font-medium text-gray-500 mb-1">시험 방식</label>
                                                                         <select
@@ -431,6 +456,20 @@ export default function StudentManagement() {
                                                                             }}
                                                                             className="w-full text-xs border border-gray-300 rounded p-1 outline-none focus:border-indigo-500"
                                                                             min="1"
+                                                                        />
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="block text-xs font-medium text-gray-500 mb-1">현재 진행 단어 번호</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={student.book_progress?.[book] || 0}
+                                                                            onChange={(e) => {
+                                                                                const newProgress = { ...(student.book_progress || {}) };
+                                                                                newProgress[book] = parseInt(e.target.value);
+                                                                                setStudents(students.map(s => s.id === student.id ? { ...s, book_progress: newProgress } : s));
+                                                                            }}
+                                                                            className="w-full text-xs border border-gray-300 rounded p-1 outline-none focus:border-indigo-500"
+                                                                            min="0"
                                                                         />
                                                                     </div>
                                                                 </div>
@@ -636,51 +675,52 @@ export default function StudentManagement() {
                                         </div>
                                     )}
                                 </div>
-                            </div>
                         ))}
-                    </div>
+                            </div>
                 </div>
-            </div>
+                </div>
 
-            {/* Absence Modal */}
-            {showAbsenceModal && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-                    <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="text-lg font-semibold">공강 처리</h3>
-                            <button onClick={() => setShowAbsenceModal(null)} className="text-gray-400 hover:text-gray-600">
-                                <X className="w-5 h-5" />
-                            </button>
+                {/* Absence Modal */}
+                {
+                    showAbsenceModal && (
+                        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+                            <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+                                <div className="flex items-center justify-between mb-4">
+                                    <h3 className="text-lg font-semibold">공강 처리</h3>
+                                    <button onClick={() => setShowAbsenceModal(null)} className="text-gray-400 hover:text-gray-600">
+                                        <X className="w-5 h-5" />
+                                    </button>
+                                </div>
+                                <p className="text-sm text-gray-600 mb-4">
+                                    공강 처리하면 해당 날짜의 학습이 자동으로 뒤로 밀립니다.
+                                </p>
+                                <div className="mb-4">
+                                    <label className="block text-sm font-medium text-gray-700 mb-2">공강 날짜</label>
+                                    <input
+                                        type="date"
+                                        value={absenceDate}
+                                        onChange={(e) => setAbsenceDate(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                                    />
+                                </div>
+                                <div className="flex space-x-2">
+                                    <button
+                                        onClick={() => handleMarkAbsent(showAbsenceModal)}
+                                        className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
+                                    >
+                                        공강 처리
+                                    </button>
+                                    <button
+                                        onClick={() => setShowAbsenceModal(null)}
+                                        className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
+                                    >
+                                        취소
+                                    </button>
+                                </div>
+                            </div>
                         </div>
-                        <p className="text-sm text-gray-600 mb-4">
-                            공강 처리하면 해당 날짜의 학습이 자동으로 뒤로 밀립니다.
-                        </p>
-                        <div className="mb-4">
-                            <label className="block text-sm font-medium text-gray-700 mb-2">공강 날짜</label>
-                            <input
-                                type="date"
-                                value={absenceDate}
-                                onChange={(e) => setAbsenceDate(e.target.value)}
-                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                            />
-                        </div>
-                        <div className="flex space-x-2">
-                            <button
-                                onClick={() => handleMarkAbsent(showAbsenceModal)}
-                                className="flex-1 px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600"
-                            >
-                                공강 처리
-                            </button>
-                            <button
-                                onClick={() => setShowAbsenceModal(null)}
-                                className="flex-1 px-4 py-2 bg-gray-300 text-gray-700 rounded-lg hover:bg-gray-400"
-                            >
-                                취소
-                            </button>
-                        </div>
-                    </div>
-                </div>
-            )}
-        </div>
-    );
+                    )
+                }
+            </div >
+            );
 }
