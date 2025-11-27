@@ -153,7 +153,8 @@ export default function StudentManagement() {
                 words_per_session: student.words_per_session,
                 words_per_day: student.words_per_day || {},
                 current_word_index: student.current_word_index,
-                name: student.name
+                name: student.name,
+                book_settings: student.book_settings || {}
             };
 
             // Note: Password update in Auth is not handled here due to client SDK limitations.
@@ -366,31 +367,75 @@ export default function StudentManagement() {
                                                 {books.map(book => {
                                                     const isActive = (student.active_books || (student.book_name ? [student.book_name] : [])).includes(book);
                                                     return (
-                                                        <label key={book} className="flex items-center space-x-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
-                                                            <input
-                                                                type="checkbox"
-                                                                checked={isActive}
-                                                                onChange={(e) => {
-                                                                    const currentActive = student.active_books || (student.book_name ? [student.book_name] : []);
-                                                                    let newActive;
-                                                                    if (e.target.checked) {
-                                                                        newActive = [...currentActive, book];
-                                                                    } else {
-                                                                        newActive = currentActive.filter(b => b !== book);
-                                                                    }
 
-                                                                    setStudents(students.map(s =>
-                                                                        s.id === student.id ? {
-                                                                            ...s,
-                                                                            active_books: newActive,
-                                                                            book_name: newActive.length > 0 ? newActive[0] : ''
-                                                                        } : s
-                                                                    ));
-                                                                }}
-                                                                className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
-                                                            />
-                                                            <span className="text-sm text-gray-700">{book}</span>
-                                                        </label>
+                                                        <div key={book} className="border-b border-gray-100 last:border-0 pb-2 mb-2">
+                                                            <label className="flex items-center space-x-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+                                                                <input
+                                                                    type="checkbox"
+                                                                    checked={isActive}
+                                                                    onChange={(e) => {
+                                                                        const currentActive = student.active_books || (student.book_name ? [student.book_name] : []);
+                                                                        let newActive;
+                                                                        if (e.target.checked) {
+                                                                            newActive = [...currentActive, book];
+                                                                        } else {
+                                                                            newActive = currentActive.filter(b => b !== book);
+                                                                        }
+
+                                                                        setStudents(students.map(s =>
+                                                                            s.id === student.id ? {
+                                                                                ...s,
+                                                                                active_books: newActive,
+                                                                                book_name: newActive.length > 0 ? newActive[0] : ''
+                                                                            } : s
+                                                                        ));
+                                                                    }}
+                                                                    className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                                                />
+                                                                <span className="text-sm font-medium text-gray-700">{book}</span>
+                                                            </label>
+
+                                                            {isActive && (
+                                                                <div className="ml-6 mt-2 grid grid-cols-2 gap-2 bg-gray-50 p-2 rounded-lg">
+                                                                    <div>
+                                                                        <label className="block text-xs font-medium text-gray-500 mb-1">시험 방식</label>
+                                                                        <select
+                                                                            value={student.book_settings?.[book]?.test_mode || 'word_typing'}
+                                                                            onChange={(e) => {
+                                                                                const newSettings = { ...(student.book_settings || {}) };
+                                                                                newSettings[book] = {
+                                                                                    ...(newSettings[book] || {}),
+                                                                                    test_mode: e.target.value
+                                                                                };
+                                                                                setStudents(students.map(s => s.id === student.id ? { ...s, book_settings: newSettings } : s));
+                                                                            }}
+                                                                            className="w-full text-xs border border-gray-300 rounded p-1 outline-none focus:border-indigo-500"
+                                                                        >
+                                                                            <option value="word_typing">단어 시험 (타이핑)</option>
+                                                                            <option value="sentence_click">문장 시험 (클릭 배열)</option>
+                                                                            <option value="sentence_type">문장 시험 (타이핑 배열)</option>
+                                                                        </select>
+                                                                    </div>
+                                                                    <div>
+                                                                        <label className="block text-xs font-medium text-gray-500 mb-1">세션당 단어 수</label>
+                                                                        <input
+                                                                            type="number"
+                                                                            value={student.book_settings?.[book]?.words_per_session || student.words_per_session || 10}
+                                                                            onChange={(e) => {
+                                                                                const newSettings = { ...(student.book_settings || {}) };
+                                                                                newSettings[book] = {
+                                                                                    ...(newSettings[book] || {}),
+                                                                                    words_per_session: parseInt(e.target.value)
+                                                                                };
+                                                                                setStudents(students.map(s => s.id === student.id ? { ...s, book_settings: newSettings } : s));
+                                                                            }}
+                                                                            className="w-full text-xs border border-gray-300 rounded p-1 outline-none focus:border-indigo-500"
+                                                                            min="1"
+                                                                        />
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
                                                     );
                                                 })}
                                             </div>

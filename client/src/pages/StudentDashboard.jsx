@@ -92,7 +92,8 @@ export default function StudentDashboard() {
             currentIndex = settings.current_word_index || 0;
         }
 
-        const defaultWordsPerSession = settings.words_per_session || 10;
+        const bookSettings = settings.book_settings?.[bookName] || {};
+        const defaultWordsPerSession = bookSettings.words_per_session || settings.words_per_session || 10;
         const dailyCounts = settings.words_per_day || {};
 
         // Helper to check if a specific day was completed for THIS book
@@ -150,7 +151,9 @@ export default function StudentDashboard() {
         }
 
         const targetDayOfWeek = getDay(targetDate).toString();
-        const wordsForTargetDay = dailyCounts[targetDayOfWeek] ? parseInt(dailyCounts[targetDayOfWeek]) : defaultWordsPerSession;
+        const wordsForTargetDay = bookSettings.words_per_session
+            ? bookSettings.words_per_session
+            : (dailyCounts[targetDayOfWeek] ? parseInt(dailyCounts[targetDayOfWeek]) : defaultWordsPerSession);
 
         const baseWordNumber = currentIndex;
         const startWordNumber = baseWordNumber + accumulatedWords;
