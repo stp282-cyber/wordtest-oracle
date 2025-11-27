@@ -11,68 +11,87 @@ export default function StudyPage() {
     const navigate = useNavigate();
     const location = useLocation();
 
-    const fetchWords = async () => {
-        const userId = localStorage.getItem('userId');
+    useEffect(() => {
+        const fetchWords = async () => {
+            const userId = localStorage.getItem('userId');
 
-        // Prioritize location state, then localStorage
-        let studyStartIndex = location.state?.studyStartIndex || localStorage.getItem('studyStartIndex');
-        let studyEndIndex = location.state?.studyEndIndex || localStorage.getItem('studyEndIndex');
+            // Prioritize location state, then localStorage
+            let studyStartIndex = location.state?.studyStartIndex || localStorage.getItem('studyStartIndex');
+            let studyEndIndex = location.state?.studyEndIndex || localStorage.getItem('studyEndIndex');
 
-        try {
-            // 1. Get User Settings
-            const userDoc = await getDoc(doc(db, 'users', userId));
-            if (!userDoc.exists()) {
-                alert('사용자 설정을 찾을 수 없습니다.');
+            try {
+                // 1. Get User Settings
+                const userDoc = await getDoc(doc(db, 'users', userId));
+                if (!userDoc.exists()) {
+                    alert('사용자 설정을 찾을 수 없습니다.');
+                    navigate('/student');
+                    return;
+                }
+                const settings = userDoc.data();
+                const bookName = location.state?.bookName || settings.book_name || '기본';
+                const wordsPerSession = settings.words_per_session || 10;
+
+                let currentWordIndex = 0;
+                if (settings.book_progress && settings.book_progress[bookName] !== undefined) {
+                    currentWordIndex = settings.book_progress[bookName];
+                } else if (bookName === settings.book_name) {
+                    currentWordIndex = settings.current_word_index || 0;
+                }
+
+                // 2. Determine Range
+                let startWordNumber;
+                let endWordNumber;
+
+                if (studyStartIndex && studyEndIndex) {
+                    startWordNumber = parseInt(studyStartIndex);
+                    endWordNumber = parseInt(studyEndIndex);
+                } else if (studyStartIndex) {
+                    startWordNumber = parseInt(studyStartIndex);
+                    endWordNumber = startWordNumber + wordsPerSession;
+                } else {
+                    startWordNumber = currentWordIndex + 1;
+                    endWordNumber = startWordNumber + wordsPerSession;
+                }
+
+                setRangeInfo({ start: startWordNumber, end: endWordNumber });
+
+                // 3. Fetch Words (Fetch all for book and filter in JS to avoid index issues)
+                const wordsQuery = query(
+                    collection(db, 'words'),
+                    where('book_name', '==', bookName)
+                );
+                const querySnapshot = await getDocs(wordsQuery);
+                const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                // 4. Filter and Sort
+                const targetWords = allWords
+                    .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
+                    .sort((a, b) => a.word_number - b.word_number);
+
+                setWords(targetWords);
+                setLoading(false);
+
+            } catch (err) {
+                console.error(err);
+                alert('데이터 불러오기 실패: ' + err.message);
                 navigate('/student');
-                return;
             }
-            const settings = userDoc.data();
-            const bookName = settings.book_name || '기본';
-            const wordsPerSession = settings.words_per_session || 10;
-            const currentWordIndex = settings.current_word_index || 0;
+        };
 
-            // 2. Determine Range
-            let startWordNumber;
-            let endWordNumber;
-
-            if (studyStartIndex && studyEndIndex) {
-                startWordNumber = parseInt(studyStartIndex);
-                endWordNumber = parseInt(studyEndIndex);
-            } else if (studyStartIndex) {
-                startWordNumber = parseInt(studyStartIndex);
-                endWordNumber = startWordNumber + wordsPerSession;
-            } else {
-                startWordNumber = currentWordIndex + 1;
-                endWordNumber = startWordNumber + wordsPerSession;
-            }
-
-            setRangeInfo({ start: startWordNumber, end: endWordNumber });
-
-            // 3. Fetch Words (Fetch all for book and filter in JS to avoid index issues)
-            const wordsQuery = query(
-                collection(db, 'words'),
-                where('book_name', '==', bookName)
-            );
-            const querySnapshot = await getDocs(wordsQuery);
-            const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            // 4. Filter and Sort
-            const targetWords = allWords
-                .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
-                .sort((a, b) => a.word_number - b.word_number);
-
-            setWords(targetWords);
-            setLoading(false);
-
-        } catch (err) {
-            console.error(err);
-            alert('데이터 불러오기 실패: ' + err.message);
-            navigate('/student');
-        }
-    };
+        fetchWords();
+    }, [location.state, navigate]);
 
     useEffect(() => {
-        fetchWords();
+        const handleKeyDown = (e) => {
+            // Prevent Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A (and Cmd+ for Mac)
+            if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'a'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+                alert('단축키를 사용할 수 없습니다.');
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
     const handleStartTest = () => {
@@ -80,7 +99,8 @@ export default function StudyPage() {
             state: {
                 studyStartIndex: rangeInfo.start,
                 studyEndIndex: rangeInfo.end,
-                scheduledDate: location.state?.scheduledDate
+                scheduledDate: location.state?.scheduledDate,
+                bookName: location.state?.bookName
             }
         });
     };
@@ -115,7 +135,13 @@ export default function StudyPage() {
     };
 
     return (
-        <div className="min-h-screen bg-gray-50 p-8">
+        <div
+            className="min-h-screen bg-gray-50 p-8"
+            onCopy={(e) => e.preventDefault()}
+            onPaste={(e) => e.preventDefault()}
+            onCut={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+        >
             <div className="max-w-4xl mx-auto">
                 <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
                     {/* Header */}

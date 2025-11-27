@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { Upload, Trash2, Plus, BookOpen } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
@@ -8,9 +8,7 @@ export default function WordManagement() {
     const [words, setWords] = useState([]);
     const [newWord, setNewWord] = useState({ book_name: '기본', word_number: '', english: '', korean: '' });
     const [filterBookName, setFilterBookName] = useState('전체');
-    const [bookNames, setBookNames] = useState([]);
-
-    const fetchWords = async () => {
+    const fetchWords = useCallback(async () => {
         try {
             const querySnapshot = await getDocs(collection(db, 'words'));
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -20,16 +18,14 @@ export default function WordManagement() {
         } catch (err) {
             console.error("Error fetching words:", err);
         }
-    };
-
-    useEffect(() => {
-        fetchWords();
     }, []);
 
     useEffect(() => {
-        const uniqueBooks = ['전체', ...new Set(words.map(w => w.book_name).filter(Boolean))];
-        setBookNames(uniqueBooks);
-    }, [words]);
+        fetchWords();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, []);
+
+    const bookNames = ['전체', ...new Set(words.map(w => w.book_name).filter(Boolean))];
 
     const handleExcelUpload = (e) => {
         const file = e.target.files[0];

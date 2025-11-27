@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { UserPlus, Users, Calendar, X } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, getDocs, updateDoc, deleteDoc, doc, setDoc, query, where } from 'firebase/firestore';
@@ -35,7 +35,7 @@ export default function StudentManagement() {
         { value: '6', label: '토' }
     ];
 
-    const fetchStudents = async () => {
+    const fetchStudents = useCallback(async () => {
         try {
             const q = query(collection(db, 'users'), where('role', '==', 'student'));
             const querySnapshot = await getDocs(q);
@@ -44,9 +44,9 @@ export default function StudentManagement() {
         } catch (err) {
             console.error("Error fetching students:", err);
         }
-    };
+    }, []);
 
-    const fetchBooks = async () => {
+    const fetchBooks = useCallback(async () => {
         try {
             const querySnapshot = await getDocs(collection(db, 'words'));
             const data = querySnapshot.docs.map(doc => doc.data());
@@ -55,9 +55,9 @@ export default function StudentManagement() {
         } catch (err) {
             console.error("Error fetching books:", err);
         }
-    };
+    }, []);
 
-    const fetchClasses = async () => {
+    const fetchClasses = useCallback(async () => {
         try {
             const querySnapshot = await getDocs(collection(db, 'classes'));
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -65,15 +65,16 @@ export default function StudentManagement() {
         } catch (err) {
             console.error("Error fetching classes:", err);
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchStudents();
         fetchBooks();
         fetchClasses();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const handleMarkAbsent = async (studentId) => {
+    const handleMarkAbsent = async () => {
         if (!absenceDate) {
             alert('날짜를 선택해주세요');
             return;
@@ -141,12 +142,13 @@ export default function StudentManagement() {
             alert('등록 실패: ' + err.message);
         }
     };
-
     const handleUpdateSettings = async (student) => {
         try {
             const studentRef = doc(db, 'users', student.id);
             const updates = {
                 book_name: student.book_name,
+                active_books: student.active_books || [student.book_name],
+                next_books: student.next_books || [],
                 study_days: student.study_days,
                 words_per_session: student.words_per_session,
                 words_per_day: student.words_per_day || {},
@@ -194,6 +196,12 @@ export default function StudentManagement() {
                 : s
         ));
     };
+
+    const [selectedClass, setSelectedClass] = useState('all');
+
+    const filteredStudents = selectedClass === 'all'
+        ? students
+        : students.filter(s => s.class_id === selectedClass);
 
     return (
         <div className="min-h-screen bg-gray-50 p-8">
@@ -247,9 +255,21 @@ export default function StudentManagement() {
 
                 {/* Student List */}
                 <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
-                    <h2 className="text-lg font-semibold mb-4">학생 목록 ({students.length}명)</h2>
+                    <div className="flex items-center justify-between mb-4">
+                        <h2 className="text-lg font-semibold">학생 목록 ({filteredStudents.length}명)</h2>
+                        <select
+                            value={selectedClass}
+                            onChange={(e) => setSelectedClass(e.target.value)}
+                            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                        >
+                            <option value="all">전체 반</option>
+                            {classes.map(cls => (
+                                <option key={cls.id} value={cls.id}>{cls.name}</option>
+                            ))}
+                        </select>
+                    </div>
                     <div className="space-y-4">
-                        {students.map((student) => (
+                        {filteredStudents.map((student) => (
                             <div key={student.id} className="border border-gray-200 rounded-lg p-4">
                                 <div className="flex items-center justify-between mb-3">
                                     <div>
@@ -338,23 +358,126 @@ export default function StudentManagement() {
                                         )}
                                     </div>
 
-                                    {/* Book Selection */}
+                                    {/* Active Books (Multi-Select) */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">단어장</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">학습 중인 단어장 (다중 선택)</label>
                                         {editingStudent === student.id ? (
-                                            <select
-                                                value={student.book_name || '기본'}
-                                                onChange={(e) => setStudents(students.map(s =>
-                                                    s.id === student.id ? { ...s, book_name: e.target.value } : s
-                                                ))}
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            >
-                                                {books.map(book => (
-                                                    <option key={book} value={book}>{book}</option>
-                                                ))}
-                                            </select>
+                                            <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2 bg-white">
+                                                {books.map(book => {
+                                                    const isActive = (student.active_books || (student.book_name ? [student.book_name] : [])).includes(book);
+                                                    return (
+                                                        <label key={book} className="flex items-center space-x-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isActive}
+                                                                onChange={(e) => {
+                                                                    const currentActive = student.active_books || (student.book_name ? [student.book_name] : []);
+                                                                    let newActive;
+                                                                    if (e.target.checked) {
+                                                                        newActive = [...currentActive, book];
+                                                                    } else {
+                                                                        newActive = currentActive.filter(b => b !== book);
+                                                                    }
+
+                                                                    setStudents(students.map(s =>
+                                                                        s.id === student.id ? {
+                                                                            ...s,
+                                                                            active_books: newActive,
+                                                                            book_name: newActive.length > 0 ? newActive[0] : ''
+                                                                        } : s
+                                                                    ));
+                                                                }}
+                                                                className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                                            />
+                                                            <span className="text-sm text-gray-700">{book}</span>
+                                                        </label>
+                                                    );
+                                                })}
+                                            </div>
                                         ) : (
-                                            <p className="text-gray-600 py-2">{student.book_name || '기본'}</p>
+                                            <div className="py-2 flex flex-wrap gap-1">
+                                                {(student.active_books && student.active_books.length > 0
+                                                    ? student.active_books
+                                                    : (student.book_name ? [student.book_name] : [])
+                                                ).map((book, idx) => (
+                                                    <span key={idx} className="inline-block bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded border border-indigo-100">
+                                                        {book}
+                                                    </span>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    {/* Queued Books */}
+                                    <div>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">학습 대기열 (순서대로 진행)</label>
+                                        {editingStudent === student.id ? (
+                                            <div className="space-y-2">
+                                                <div className="flex gap-2 mb-2">
+                                                    <select
+                                                        id={`queue-select-${student.id}`}
+                                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none"
+                                                    >
+                                                        <option value="">추가할 단어장 선택</option>
+                                                        {books.filter(b =>
+                                                            !(student.active_books || (student.book_name ? [student.book_name] : [])).includes(b) &&
+                                                            !(student.next_books || []).includes(b)
+                                                        ).map(b => (
+                                                            <option key={b} value={b}>{b}</option>
+                                                        ))}
+                                                    </select>
+                                                    <button
+                                                        onClick={() => {
+                                                            const select = document.getElementById(`queue-select-${student.id}`);
+                                                            const val = select.value;
+                                                            if (val) {
+                                                                const currentQueue = student.next_books || [];
+                                                                setStudents(students.map(s =>
+                                                                    s.id === student.id ? { ...s, next_books: [...currentQueue, val] } : s
+                                                                ));
+                                                                select.value = '';
+                                                            }
+                                                        }}
+                                                        className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
+                                                    >
+                                                        추가
+                                                    </button>
+                                                </div>
+                                                <div className="bg-gray-50 p-2 rounded-lg border border-gray-200 min-h-[50px]">
+                                                    {(student.next_books || []).map((book, idx) => (
+                                                        <div key={idx} className="flex items-center justify-between bg-white p-2 mb-1 rounded border border-gray-100 shadow-sm">
+                                                            <span className="text-sm">{idx + 1}. {book}</span>
+                                                            <button
+                                                                onClick={() => {
+                                                                    const newQueue = [...(student.next_books || [])];
+                                                                    newQueue.splice(idx, 1);
+                                                                    setStudents(students.map(s =>
+                                                                        s.id === student.id ? { ...s, next_books: newQueue } : s
+                                                                    ));
+                                                                }}
+                                                                className="text-red-500 hover:text-red-700 text-xs"
+                                                            >
+                                                                삭제
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                    {(student.next_books || []).length === 0 && (
+                                                        <p className="text-gray-400 text-xs text-center py-2">대기 중인 단어장이 없습니다</p>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <div className="py-2">
+                                                {(student.next_books || []).length > 0 ? (
+                                                    (student.next_books || []).map((book, idx) => (
+                                                        <div key={idx} className="text-sm text-gray-600">
+                                                            {idx + 1}. {book}
+                                                        </div>
+                                                    ))
+                                                ) : (
+                                                    <span className="text-gray-400 text-sm">-</span>
+                                                )}
+                                            </div>
                                         )}
                                     </div>
 

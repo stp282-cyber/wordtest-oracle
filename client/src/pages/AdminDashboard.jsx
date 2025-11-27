@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download } from 'lucide-react';
 import { db } from '../firebase';
@@ -13,7 +13,7 @@ export default function AdminDashboard() {
     const [studentResults, setStudentResults] = useState([]);
     const navigate = useNavigate();
 
-    const fetchStudents = async () => {
+    const fetchStudents = useCallback(async () => {
         try {
             const q = query(collection(db, 'users'), where('role', '==', 'student'));
             const querySnapshot = await getDocs(q);
@@ -23,9 +23,9 @@ export default function AdminDashboard() {
         } catch (err) {
             console.error("Error fetching students:", err);
         }
-    };
+    }, []);
 
-    const fetchClasses = async () => {
+    const fetchClasses = useCallback(async () => {
         try {
             const querySnapshot = await getDocs(collection(db, 'classes'));
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -33,11 +33,12 @@ export default function AdminDashboard() {
         } catch (err) {
             console.error("Error fetching classes:", err);
         }
-    };
+    }, []);
 
     useEffect(() => {
         fetchStudents();
         fetchClasses();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     useEffect(() => {

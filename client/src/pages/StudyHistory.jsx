@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
 import { db } from '../firebase';
@@ -8,7 +8,7 @@ export default function StudyHistory() {
     const [history, setHistory] = useState([]);
     const navigate = useNavigate();
 
-    const fetchHistory = async () => {
+    const fetchHistory = useCallback(async () => {
         const userId = localStorage.getItem('userId');
         try {
             const q = query(
@@ -57,10 +57,11 @@ export default function StudyHistory() {
             alert('학습 기록을 불러오지 못했습니다.');
             navigate('/student');
         }
-    };
+    }, [navigate]);
 
     useEffect(() => {
         fetchHistory();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const formatDate = (dateStr) => {

@@ -10,47 +10,58 @@ export default function StudentDashboard() {
     const [settings, setSettings] = useState(null);
     const [todayCompleted, setTodayCompleted] = useState(false);
     const [currentMonth, setCurrentMonth] = useState(new Date());
+    const [selectedBook, setSelectedBook] = useState(null);
     const navigate = useNavigate();
     const username = localStorage.getItem('username');
 
-    const fetchDashboard = async () => {
-        const userId = localStorage.getItem('userId');
-        if (!userId) return;
-
-        try {
-            // Fetch User Settings
-            const userDoc = await getDoc(doc(db, 'users', userId));
-            if (userDoc.exists()) {
-                setSettings(userDoc.data());
-            }
-
-            // Fetch History
-            const historyQuery = query(
-                collection(db, 'test_results'),
-                where('user_id', '==', userId)
-            );
-            const querySnapshot = await getDocs(historyQuery);
-            const historyData = querySnapshot.docs.map(doc => doc.data());
-
-            // Sort by date desc
-            historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
-            setHistory(historyData);
-
-            const today = new Date();
-            const completedToday = historyData.some(h => {
-                const historyDate = new Date(h.date);
-                return isSameDay(historyDate, today);
-            });
-            setTodayCompleted(completedToday);
-
-        } catch (err) {
-            console.error("Error fetching dashboard data:", err);
-        }
-    };
-
     useEffect(() => {
+        const fetchDashboard = async () => {
+            const userId = localStorage.getItem('userId');
+            if (!userId) return;
+
+            try {
+                // Fetch User Settings
+                const userDoc = await getDoc(doc(db, 'users', userId));
+                if (userDoc.exists()) {
+                    setSettings(userDoc.data());
+                }
+
+                // Fetch History
+                const historyQuery = query(
+                    collection(db, 'test_results'),
+                    where('user_id', '==', userId)
+                );
+                const querySnapshot = await getDocs(historyQuery);
+                const historyData = querySnapshot.docs.map(doc => doc.data());
+
+                // Sort by date desc
+                historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
+                setHistory(historyData);
+
+                const today = new Date();
+                const completedToday = historyData.some(h => {
+                    const historyDate = new Date(h.date);
+                    return isSameDay(historyDate, today);
+                });
+                setTodayCompleted(completedToday);
+
+            } catch (err) {
+                console.error("Error fetching dashboard data:", err);
+            }
+        };
+
         fetchDashboard();
     }, []);
+
+    useEffect(() => {
+        if (settings) {
+            const books = settings.active_books || (settings.book_name ? [settings.book_name] : []);
+            if (books.length > 0 && !selectedBook) {
+                setSelectedBook(books[0]);
+            }
+        }
+    }, [settings, selectedBook]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
 
     const handleLogout = () => {
         auth.signOut();
@@ -65,33 +76,33 @@ export default function StudentDashboard() {
         return studyDays.includes(dayOfWeek);
     };
 
-    const getWordRangeForDate = (date) => {
-        if (!settings) return null;
-
-        // 1. Check history first! Use actual recorded range for completed days.
-        // const historyRecord = history.find(h => {
-        //     const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
-        //     return isSameDay(recordDate, date);
-        // });
-
-        // if (historyRecord && historyRecord.range_start && historyRecord.range_end) {
-        //     return { start: historyRecord.range_start, end: historyRecord.range_end };
-        // }
+    const getWordRangeForDate = (date, bookName = selectedBook) => {
+        if (!settings || !bookName) return null;
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const targetDate = new Date(date);
         targetDate.setHours(0, 0, 0, 0);
 
-        const currentIndex = settings.current_word_index || 0;
+        // Determine currentIndex for this book
+        let currentIndex = 0;
+        if (settings.book_progress && settings.book_progress[bookName] !== undefined) {
+            currentIndex = settings.book_progress[bookName];
+        } else if (bookName === settings.book_name) {
+            currentIndex = settings.current_word_index || 0;
+        }
+
         const defaultWordsPerSession = settings.words_per_session || 10;
         const dailyCounts = settings.words_per_day || {};
 
-        // Helper to check if a specific day was completed
+        // Helper to check if a specific day was completed for THIS book
         const isDayCompleted = (dayToCheck) => {
             return history.some(h => {
                 const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
-                return isSameDay(recordDate, dayToCheck);
+                const isSameDate = isSameDay(recordDate, dayToCheck);
+                // Legacy compatibility: if h.book_name is missing, assume it matches settings.book_name
+                const historyBook = h.book_name || settings.book_name;
+                return isSameDate && historyBook === bookName;
             });
         };
 
@@ -155,7 +166,8 @@ export default function StudentDashboard() {
                 state: {
                     studyStartIndex: wordRange.start,
                     studyEndIndex: wordRange.end,
-                    scheduledDate: date.toISOString()
+                    scheduledDate: date.toISOString(),
+                    bookName: selectedBook
                 }
             });
         } else {
@@ -175,7 +187,6 @@ export default function StudentDashboard() {
         setCurrentMonth(prev => addMonths(prev, 1));
     };
 
-    const today = new Date();
     const monthStart = startOfMonth(currentMonth);
     const daysInMonth = eachDayOfInterval({
         start: monthStart,
@@ -239,11 +250,35 @@ export default function StudentDashboard() {
 
             <main className="max-w-4xl px-4 py-8 mx-auto space-y-8">
                 <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
+                    {/* Book Tabs */}
+                    {settings?.active_books && settings.active_books.length > 0 && (
+                        <div className="flex space-x-2 mb-6 overflow-x-auto pb-2">
+                            {settings.active_books.map(book => (
+                                <button
+                                    key={book}
+                                    onClick={() => setSelectedBook(book)}
+                                    className={`px-4 py-2 rounded-lg whitespace-nowrap transition-all font-medium ${selectedBook === book
+                                        ? 'bg-indigo-600 text-white shadow-md'
+                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
+                                        }`}
+                                >
+                                    {book}
+                                </button>
+                            ))}
+                        </div>
+                    )}
+
                     <div className="flex items-center justify-between mb-4">
                         <div>
                             <h2 className="text-lg font-semibold text-gray-800">학습 진도</h2>
-                            <p className="text-sm text-gray-500">단어장: {settings?.book_name || '기본'}</p>
-                            <p className="text-sm text-gray-500">현재 단어 번호: {settings?.current_word_index || 0}</p>
+                            <p className="text-sm text-gray-500">단어장: {selectedBook || settings?.book_name || '기본'}</p>
+                            <p className="text-sm text-gray-500">
+                                현재 단어 번호: {
+                                    settings?.book_progress?.[selectedBook] !== undefined
+                                        ? settings.book_progress[selectedBook]
+                                        : (selectedBook === settings?.book_name ? settings?.current_word_index : 0) || 0
+                                }
+                            </p>
                         </div>
                         {todayCompleted && (
                             <div className="flex items-center space-x-2 px-4 py-2 bg-green-100 text-green-700 rounded-lg">
@@ -316,7 +351,7 @@ export default function StudentDashboard() {
                                     </div>
                                     {status.showInfo && status.wordRange && (
                                         <div className="text-[10px] text-center leading-tight">
-                                            <div className="font-medium">{settings?.book_name || '기본'}</div>
+                                            <div className="font-medium">{selectedBook || settings?.book_name || '기본'}</div>
                                             <div>#{status.wordRange.start} - #{status.wordRange.end - 1}</div>
                                         </div>
                                     )}

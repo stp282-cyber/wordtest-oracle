@@ -4,6 +4,17 @@ import { ArrowRight, Check, RotateCcw, BookOpen } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
+const isSentence = (text) => text && text.trim().split(/\s+/).length >= 3;
+
+const shuffleArray = (array) => {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+};
+
 export default function TestInterface() {
     const [loading, setLoading] = useState(true);
     const [newWords, setNewWords] = useState([]);
@@ -21,22 +32,176 @@ export default function TestInterface() {
     const [firstAttemptScore, setFirstAttemptScore] = useState(null);
     const [retryCount, setRetryCount] = useState(0);
     const [initialTestType, setInitialTestType] = useState('new_words');
+    const [maxWordNumber, setMaxWordNumber] = useState(0);
+    const [currentBookName, setCurrentBookName] = useState('');
 
     const navigate = useNavigate();
     const location = useLocation();
 
+    const [scrambledWords, setScrambledWords] = useState([]);
+    const [selectedWords, setSelectedWords] = useState([]);
+
     useEffect(() => {
+        const fetchTest = async () => {
+            const userId = localStorage.getItem('userId');
+            let studyStartIndex = localStorage.getItem('studyStartIndex');
+            let studyEndIndex = localStorage.getItem('studyEndIndex');
+
+            // Check location state for range overrides
+            if (location.state?.studyStartIndex !== undefined && location.state?.studyEndIndex !== undefined) {
+                studyStartIndex = location.state.studyStartIndex;
+                studyEndIndex = location.state.studyEndIndex;
+            }
+
+            try {
+                // 1. Get User Settings
+                const userDoc = await getDoc(doc(db, 'users', userId));
+                if (!userDoc.exists()) {
+                    alert('사용자 설정을 찾을 수 없습니다.');
+                    navigate('/student');
+                    return;
+                }
+                const settings = userDoc.data();
+                const bookName = location.state?.bookName || settings.book_name || '기본';
+                setCurrentBookName(bookName);
+
+                let currentWordIndex = 0;
+                if (settings.book_progress && settings.book_progress[bookName] !== undefined) {
+                    currentWordIndex = settings.book_progress[bookName];
+                } else if (bookName === settings.book_name) {
+                    currentWordIndex = settings.current_word_index || 0;
+                }
+
+                // 2. Determine Range
+                let startWordNumber;
+                let endWordNumber;
+
+                // Check if values exist (checking for null or undefined, allowing 0)
+                if (studyStartIndex != null && studyEndIndex != null) {
+                    startWordNumber = parseInt(studyStartIndex);
+                    endWordNumber = parseInt(studyEndIndex);
+                    console.log('Using stored range:', startWordNumber, endWordNumber);
+                } else {
+                    startWordNumber = currentWordIndex + 1;
+
+                    const today = new Date().getDay().toString();
+                    const dailyCounts = settings.words_per_day || {};
+                    const wordsPerSession = dailyCounts[today] ? parseInt(dailyCounts[today]) : (settings.words_per_session || 10);
+
+                    endWordNumber = startWordNumber + wordsPerSession;
+                    console.log('Using calculated range (Today):', startWordNumber, endWordNumber);
+                }
+
+                // Review Range
+                const currentSessionLength = endWordNumber - startWordNumber;
+                const reviewStartWordNumber = Math.max(1, startWordNumber - (currentSessionLength * 2));
+                const reviewEndWordNumber = startWordNumber;
+
+                // 3. Fetch Words
+                const wordsQuery = query(
+                    collection(db, 'words'),
+                    where('book_name', '==', bookName)
+                );
+                const querySnapshot = await getDocs(wordsQuery);
+                const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                // Calculate max word number for this book
+                const maxNum = Math.max(...allWords.map(w => w.word_number || 0), 0);
+                setMaxWordNumber(maxNum);
+
+                // 4. Filter
+                const newWordsData = allWords
+                    .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
+                    .sort((a, b) => a.word_number - b.word_number);
+
+                const reviewWordsData = allWords
+                    .filter(w => w.word_number >= reviewStartWordNumber && w.word_number < reviewEndWordNumber)
+                    .sort((a, b) => a.word_number - b.word_number);
+
+                if (newWordsData.length === 0 && allWords.length === 0) {
+                    alert('학습할 단어가 없습니다.');
+                    navigate('/student');
+                    return;
+                }
+
+                setNewWords(newWordsData);
+                setReviewWords(reviewWordsData);
+
+                setRangeStart(startWordNumber);
+                setRangeEnd(endWordNumber);
+
+                // Determine initial test type
+                if (newWordsData.length > 0) {
+                    setInitialTestType('new_words');
+                    setCurrentTestWords(shuffleArray(newWordsData));
+                    setTestMode('new');
+                } else if (reviewWordsData.length > 0) {
+                    setInitialTestType('review_words');
+                    setShowWrongWordsReview(true);
+                    setWrongWords(reviewWordsData);
+                    setTestMode('review-study');
+                } else {
+                    alert('학습할 단어가 없습니다.');
+                    navigate('/student');
+                }
+
+            } catch (err) {
+                console.error(err);
+                alert('데이터 불러오기 실패');
+                navigate('/student');
+            } finally {
+                setLoading(false);
+            }
+        };
+
         fetchTest();
+    }, [location.state, navigate]);
+
+    useEffect(() => {
+        const handleKeyDown = (e) => {
+            // Prevent Ctrl+C, Ctrl+V, Ctrl+X, Ctrl+A (and Cmd+ for Mac)
+            if ((e.ctrlKey || e.metaKey) && ['c', 'v', 'x', 'a'].includes(e.key.toLowerCase())) {
+                e.preventDefault();
+                alert('단축키를 사용할 수 없습니다.');
+            }
+        };
+
+        window.addEventListener('keydown', handleKeyDown);
+        return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-    const shuffleArray = (array) => {
-        const shuffled = [...array];
-        for (let i = shuffled.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+
+
+    useEffect(() => {
+        const word = currentTestWords[currentIndex];
+        if (word && isSentence(word.english)) {
+            const words = word.english.trim().split(/\s+/);
+            const shuffled = [...words].map((w, i) => ({ text: w, id: i }));
+            for (let i = shuffled.length - 1; i > 0; i--) {
+                const j = Math.floor(Math.random() * (i + 1));
+                [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+            }
+            setScrambledWords(shuffled);
+            setSelectedWords([]);
         }
-        return shuffled;
+    }, [currentIndex, currentTestWords]);
+
+    const handleSentenceClick = (wordObj) => {
+        setScrambledWords(prev => prev.filter(w => w.id !== wordObj.id));
+        setSelectedWords(prev => [...prev, wordObj]);
     };
+
+    const handleSentenceUndo = (wordObj) => {
+        setSelectedWords(prev => prev.filter(w => w.id !== wordObj.id));
+        setScrambledWords(prev => [...prev, wordObj]);
+    };
+
+    const submitSentence = () => {
+        const answer = selectedWords.map(w => w.text).join(' ');
+        handleAnswer(answer);
+    };
+
+
 
     // Speech synthesis helper – reads English word aloud
     const speakWord = (text) => {
@@ -46,107 +211,7 @@ export default function TestInterface() {
         window.speechSynthesis.speak(utter);
     };
 
-    const fetchTest = async () => {
-        const userId = localStorage.getItem('userId');
-        let studyStartIndex = localStorage.getItem('studyStartIndex');
-        let studyEndIndex = localStorage.getItem('studyEndIndex');
 
-        // Check location state for range overrides
-        if (location.state?.studyStartIndex !== undefined && location.state?.studyEndIndex !== undefined) {
-            studyStartIndex = location.state.studyStartIndex;
-            studyEndIndex = location.state.studyEndIndex;
-        }
-
-        try {
-            // 1. Get User Settings
-            const userDoc = await getDoc(doc(db, 'users', userId));
-            if (!userDoc.exists()) {
-                alert('사용자 설정을 찾을 수 없습니다.');
-                navigate('/student');
-                return;
-            }
-            const settings = userDoc.data();
-            const bookName = settings.book_name || '기본';
-            const currentWordIndex = settings.current_word_index || 0;
-
-            // 2. Determine Range
-            // 2. Determine Range
-            let startWordNumber;
-            let endWordNumber;
-
-            // Check if values exist (checking for null or undefined, allowing 0)
-            if (studyStartIndex != null && studyEndIndex != null) {
-                startWordNumber = parseInt(studyStartIndex);
-                endWordNumber = parseInt(studyEndIndex);
-                console.log('Using stored range:', startWordNumber, endWordNumber);
-            } else {
-                startWordNumber = currentWordIndex + 1;
-
-                const today = new Date().getDay().toString();
-                const dailyCounts = settings.words_per_day || {};
-                const wordsPerSession = dailyCounts[today] ? parseInt(dailyCounts[today]) : (settings.words_per_session || 10);
-
-                endWordNumber = startWordNumber + wordsPerSession;
-                console.log('Using calculated range (Today):', startWordNumber, endWordNumber);
-            }
-
-            // Review Range
-            const currentSessionLength = endWordNumber - startWordNumber;
-            const reviewStartWordNumber = Math.max(1, startWordNumber - (currentSessionLength * 2));
-            const reviewEndWordNumber = startWordNumber;
-
-            // 3. Fetch Words
-            const wordsQuery = query(
-                collection(db, 'words'),
-                where('book_name', '==', bookName)
-            );
-            const querySnapshot = await getDocs(wordsQuery);
-            const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            // 4. Filter
-            const newWordsData = allWords
-                .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
-                .sort((a, b) => a.word_number - b.word_number);
-
-            const reviewWordsData = allWords
-                .filter(w => w.word_number >= reviewStartWordNumber && w.word_number < reviewEndWordNumber)
-                .sort((a, b) => a.word_number - b.word_number);
-
-            if (newWordsData.length === 0 && allWords.length === 0) {
-                alert('학습할 단어가 없습니다.');
-                navigate('/student');
-                return;
-            }
-
-            setNewWords(newWordsData);
-            setReviewWords(reviewWordsData);
-
-            setRangeStart(startWordNumber);
-            setRangeEnd(endWordNumber);
-
-            // Determine initial test type
-            if (newWordsData.length > 0) {
-                setInitialTestType('new_words');
-                setCurrentTestWords(shuffleArray(newWordsData));
-                setTestMode('new');
-            } else if (reviewWordsData.length > 0) {
-                setInitialTestType('review_words');
-                setShowWrongWordsReview(true);
-                setWrongWords(reviewWordsData);
-                setTestMode('review-study');
-            } else {
-                alert('학습할 단어가 없습니다.');
-                navigate('/student');
-            }
-
-        } catch (err) {
-            console.error(err);
-            alert('데이터 불러오기 실패');
-            navigate('/student');
-        } finally {
-            setLoading(false);
-        }
-    };
 
     const handleAnswer = (answer) => {
         const currentWord = currentTestWords[currentIndex];
@@ -259,27 +324,60 @@ export default function TestInterface() {
                 test_type: initialTestType,
                 completed: 1,
                 date: new Date().toISOString(),
-                scheduled_date: location.state?.scheduledDate || null
+                scheduled_date: location.state?.scheduledDate || null,
+                book_name: currentBookName
             });
 
             // Update User Progress
+            // Update User Progress
             const userRef = doc(db, 'users', userId);
             const userSnap = await getDoc(userRef);
+
             if (userSnap.exists()) {
                 const userData = userSnap.data();
-                const currentWordIndex = userData.current_word_index || 0;
+                const currentBookProgress = userData.book_progress || {};
 
-                // Only update if the new range end is greater than the current progress
-                if (rangeEnd > currentWordIndex) {
-                    await updateDoc(userRef, {
-                        current_word_index: rangeEnd
-                    });
+                // Update progress for this book
+                const newProgress = Math.max(currentBookProgress[currentBookName] || 0, rangeEnd);
+                currentBookProgress[currentBookName] = newProgress;
+
+                const updates = {
+                    book_progress: currentBookProgress
+                };
+
+                // Legacy compatibility
+                if (currentBookName === userData.book_name) {
+                    updates.current_word_index = newProgress;
                 }
-            } else {
-                // Fallback if user doc doesn't exist for some reason (unlikely)
-                await updateDoc(userRef, {
-                    current_word_index: rangeEnd
-                });
+
+                // Auto-Sequencing: Check if book is finished
+                if (newProgress >= maxWordNumber && maxWordNumber > 0) {
+                    const activeBooks = userData.active_books || [userData.book_name];
+                    const nextBooks = userData.next_books || [];
+
+                    // If this book is in active_books, remove it
+                    if (activeBooks.includes(currentBookName)) {
+                        const newActiveBooks = activeBooks.filter(b => b !== currentBookName);
+
+                        // If there are books in queue, add the first one
+                        if (nextBooks.length > 0) {
+                            const nextBook = nextBooks[0];
+                            newActiveBooks.push(nextBook);
+                            updates.next_books = nextBooks.slice(1);
+                            alert(`'${currentBookName}' 단어장을 완료했습니다! 다음 단어장 '${nextBook}'이(가) 시작됩니다.`);
+                        } else {
+                            alert(`'${currentBookName}' 단어장을 완료했습니다!`);
+                        }
+
+                        updates.active_books = newActiveBooks;
+                        // Update legacy book_name to the first active book
+                        if (newActiveBooks.length > 0) {
+                            updates.book_name = newActiveBooks[0];
+                        }
+                    }
+                }
+
+                await updateDoc(userRef, updates);
             }
 
             setAllTestsComplete(true);
@@ -402,8 +500,16 @@ export default function TestInterface() {
         return '복습 시험';
     };
 
+
+
     return (
-        <div className="min-h-screen bg-gray-50 flex flex-col">
+        <div
+            className="min-h-screen bg-gray-50 flex flex-col"
+            onCopy={(e) => e.preventDefault()}
+            onPaste={(e) => e.preventDefault()}
+            onCut={(e) => e.preventDefault()}
+            onContextMenu={(e) => e.preventDefault()}
+        >
             <div className="h-2 bg-gray-200">
                 <div
                     className="h-full bg-indigo-600 transition-all duration-300"
@@ -424,7 +530,45 @@ export default function TestInterface() {
                         </p>
                     </div>
                     <div className="p-8">
-                        {testMode === 'review' ? (
+                        {isSentence(currentWord?.english) ? (
+                            <div className="space-y-6">
+                                <div className="min-h-[60px] p-4 bg-gray-100 rounded-xl border-2 border-indigo-100 flex flex-wrap gap-2 items-center">
+                                    {selectedWords.map((w) => (
+                                        <button
+                                            key={w.id}
+                                            onClick={() => handleSentenceUndo(w)}
+                                            className="px-3 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-all"
+                                        >
+                                            {w.text}
+                                        </button>
+                                    ))}
+                                    {selectedWords.length === 0 && (
+                                        <span className="text-gray-400 text-sm">단어를 클릭하여 문장을 완성하세요</span>
+                                    )}
+                                </div>
+                                <div className="flex flex-wrap gap-2 justify-center">
+                                    {scrambledWords.map((w) => (
+                                        <button
+                                            key={w.id}
+                                            onClick={() => handleSentenceClick(w)}
+                                            className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:border-indigo-500 hover:text-indigo-600 transition-all shadow-sm"
+                                        >
+                                            {w.text}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button
+                                    onClick={submitSentence}
+                                    disabled={scrambledWords.length > 0}
+                                    className={`w-full py-3 rounded-xl font-bold text-lg transition-all ${scrambledWords.length === 0
+                                        ? 'bg-indigo-600 text-white hover:bg-indigo-700'
+                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                        }`}
+                                >
+                                    정답 확인
+                                </button>
+                            </div>
+                        ) : testMode === 'review' ? (
                             <div className="grid grid-cols-1 gap-3">
                                 {(() => {
                                     const allWords = [...newWords, ...reviewWords];
