@@ -153,9 +153,13 @@ export default function StudentManagement() {
                 words_per_session: student.words_per_session,
                 words_per_day: student.words_per_day || {},
                 current_word_index: student.current_word_index,
+<<<<<<< HEAD
                 name: student.name,
                 book_settings: student.book_settings || {},
                 book_progress: student.book_progress || {}
+=======
+                name: student.name
+>>>>>>> parent of 88f66ca (2)
             };
 
             // Note: Password update in Auth is not handled here due to client SDK limitations.
@@ -392,7 +396,20 @@ export default function StudentManagement() {
                                                 {books.map(book => {
                                                     const isActive = (student.active_books || (student.book_name ? [student.book_name] : [])).includes(book);
                                                     return (
+                                                        <label key={book} className="flex items-center space-x-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
+                                                            <input
+                                                                type="checkbox"
+                                                                checked={isActive}
+                                                                onChange={(e) => {
+                                                                    const currentActive = student.active_books || (student.book_name ? [student.book_name] : []);
+                                                                    let newActive;
+                                                                    if (e.target.checked) {
+                                                                        newActive = [...currentActive, book];
+                                                                    } else {
+                                                                        newActive = currentActive.filter(b => b !== book);
+                                                                    }
 
+<<<<<<< HEAD
                                                         <div key={book} className="border-b border-gray-100 last:border-0 pb-2 mb-2">
                                                             <label className="flex items-center space-x-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
                                                                 <input
@@ -475,6 +492,20 @@ export default function StudentManagement() {
                                                                 </div>
                                                             )}
                                                         </div>
+=======
+                                                                    setStudents(students.map(s =>
+                                                                        s.id === student.id ? {
+                                                                            ...s,
+                                                                            active_books: newActive,
+                                                                            book_name: newActive.length > 0 ? newActive[0] : ''
+                                                                        } : s
+                                                                    ));
+                                                                }}
+                                                                className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
+                                                            />
+                                                            <span className="text-sm text-gray-700">{book}</span>
+                                                        </label>
+>>>>>>> parent of 88f66ca (2)
                                                     );
                                                 })}
                                             </div>

@@ -23,7 +23,6 @@ export default function TestInterface() {
     const [testMode, setTestMode] = useState('new');
     const [retryMode, setRetryMode] = useState(false);
     const [currentTestWords, setCurrentTestWords] = useState([]);
-    const [currentTestMode, setCurrentTestMode] = useState('word_typing');
     const [answers, setAnswers] = useState({});
     const [wrongWords, setWrongWords] = useState([]);
     const [showWrongWordsReview, setShowWrongWordsReview] = useState(false);
@@ -66,10 +65,6 @@ export default function TestInterface() {
                 const bookName = location.state?.bookName || settings.book_name || '기본';
                 setCurrentBookName(bookName);
 
-                // Determine test mode for this book
-                const bookSettings = settings.book_settings?.[bookName] || {};
-                setCurrentTestMode(bookSettings.test_mode || 'word_typing');
-
                 let currentWordIndex = 0;
                 if (settings.book_progress && settings.book_progress[bookName] !== undefined) {
                     currentWordIndex = settings.book_progress[bookName];
@@ -91,10 +86,7 @@ export default function TestInterface() {
 
                     const today = new Date().getDay().toString();
                     const dailyCounts = settings.words_per_day || {};
-                    const bookSettings = settings.book_settings?.[bookName] || {};
-                    const wordsPerSession = bookSettings.words_per_session
-                        ? bookSettings.words_per_session
-                        : (dailyCounts[today] ? parseInt(dailyCounts[today]) : (settings.words_per_session || 10));
+                    const wordsPerSession = dailyCounts[today] ? parseInt(dailyCounts[today]) : (settings.words_per_session || 10);
 
                     endWordNumber = startWordNumber + wordsPerSession;
                     console.log('Using calculated range (Today):', startWordNumber, endWordNumber);
@@ -190,9 +182,6 @@ export default function TestInterface() {
                 [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
             }
             setScrambledWords(shuffled);
-            setSelectedWords([]);
-        } else {
-            setScrambledWords([]);
             setSelectedWords([]);
         }
     }, [currentIndex, currentTestWords]);
@@ -537,15 +526,11 @@ export default function TestInterface() {
                             {currentWord ? (testMode === 'review' ? currentWord.english : currentWord.korean) : 'Loading...'}
                         </h2>
                         <p className={`mt-2 text-sm ${retryMode ? 'text-red-200' : 'text-indigo-200'}`}>
-                            {testMode === 'review'
-                                ? '한글 뜻을 선택하세요'
-                                : isSentence(currentWord?.english)
-                                    ? (currentTestMode === 'sentence_type' ? '문장을 완성하세요 (타이핑)' : '문장을 완성하세요 (클릭)')
-                                    : '영어 단어를 입력하세요'}
+                            {testMode === 'review' ? '한글 뜻을 선택하세요' : '영어 단어를 입력하세요'}
                         </p>
                     </div>
                     <div className="p-8">
-                        {isSentence(currentWord?.english) && currentTestMode !== 'sentence_type' ? (
+                        {isSentence(currentWord?.english) ? (
                             <div className="space-y-6">
                                 <div className="min-h-[60px] p-4 bg-gray-100 rounded-xl border-2 border-indigo-100 flex flex-wrap gap-2 items-center">
                                     {selectedWords.map((w) => (
@@ -582,43 +567,6 @@ export default function TestInterface() {
                                 >
                                     정답 확인
                                 </button>
-                            </div>
-                        ) : isSentence(currentWord?.english) && currentTestMode === 'sentence_type' ? (
-                            <div className="space-y-6">
-                                <div className="flex flex-wrap gap-2 justify-center mb-4">
-                                    {scrambledWords.map((w) => (
-                                        <span
-                                            key={w.id}
-                                            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg font-medium border border-gray-200"
-                                        >
-                                            {w.text}
-                                        </span>
-                                    ))}
-                                </div>
-                                <form
-                                    onSubmit={(e) => {
-                                        e.preventDefault();
-                                        handleAnswer(e.target.elements.input.value);
-                                        e.target.reset();
-                                    }}
-                                >
-                                    <div className="flex items-center space-x-2">
-                                        <input
-                                            name="input"
-                                            type="text"
-                                            autoFocus
-                                            autoComplete="off"
-                                            placeholder="위 단어들을 올바른 순서로 입력하세요..."
-                                            className="flex-1 w-full p-4 text-xl border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
-                                        />
-                                        <button
-                                            type="submit"
-                                            className="p-2 bg-indigo-600 rounded-full hover:bg-indigo-700 transition-all flex items-center justify-center"
-                                        >
-                                            <ArrowRight className="w-5 h-5 text-white" />
-                                        </button>
-                                    </div>
-                                </form>
                             </div>
                         ) : testMode === 'review' ? (
                             <div className="grid grid-cols-1 gap-3">
@@ -672,6 +620,6 @@ export default function TestInterface() {
                     </div>
                 </div>
             </div>
-        </div >
+        </div>
     );
 }
