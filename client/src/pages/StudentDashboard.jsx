@@ -57,37 +57,6 @@ export default function StudentDashboard() {
         navigate('/login');
     };
 
-    const handleStartStudy = (date) => {
-        if (!isStudyDay(date)) {
-            alert('오늘은 학습 요일이 아닙니다.');
-            return;
-        }
-
-        const completed = history.some(h => isSameDay(new Date(h.date), date));
-        if (completed) {
-            alert('이미 학습을 완료했습니다!');
-            return;
-        }
-
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const targetDate = new Date(date);
-        targetDate.setHours(0, 0, 0, 0);
-
-        const wordRange = getWordRangeForDate(date);
-        console.log('handleStartStudy:', { date, today, targetDate, wordRange });
-
-
-        if (wordRange) {
-            console.log('Setting localStorage:', wordRange);
-            localStorage.setItem('studyStartIndex', wordRange.start.toString());
-            localStorage.setItem('studyEndIndex', wordRange.end.toString());
-            navigate('/student/study', { state: { studyStartIndex: wordRange.start, studyEndIndex: wordRange.end } });
-        } else {
-            navigate('/student/study');
-        }
-    };
-
     const isStudyDay = (date) => {
         if (!settings || !settings.study_days) return false;
         const dayOfWeek = getDay(date);
@@ -107,7 +76,11 @@ export default function StudentDashboard() {
         const defaultWordsPerSession = settings.words_per_session || 10;
         const dailyCounts = settings.words_per_day || {};
 
-        const todayCompleted = history.some(h => isSameDay(new Date(h.date), today));
+        const todayCompleted = history.some(h => {
+            const historyDate = new Date(h.date);
+            const scheduledDate = h.scheduled_date ? new Date(h.scheduled_date) : null;
+            return isSameDay(historyDate, today) || (scheduledDate && isSameDay(scheduledDate, today));
+        });
 
         let accumulatedWords = 0;
 
@@ -118,7 +91,11 @@ export default function StudentDashboard() {
             });
 
             for (const day of daysInRange) {
-                if (isStudyDay(day) && !history.some(h => isSameDay(new Date(h.date), day))) {
+                if (isStudyDay(day) && !history.some(h => {
+                    const historyDate = new Date(h.date);
+                    const scheduledDate = h.scheduled_date ? new Date(h.scheduled_date) : null;
+                    return isSameDay(historyDate, day) || (scheduledDate && isSameDay(scheduledDate, day));
+                })) {
                     const dayOfWeek = getDay(day).toString();
                     const wordsForThisDay = dailyCounts[dayOfWeek] ? parseInt(dailyCounts[dayOfWeek]) : defaultWordsPerSession;
                     accumulatedWords -= wordsForThisDay;
@@ -126,47 +103,12 @@ export default function StudentDashboard() {
             }
         } else if (targetDate > today) {
             if (!todayCompleted && isStudyDay(today)) {
-                // If today is not completed, we start counting from today (accumulatedWords = 0 initially)
-                // But wait, if targetDate > today, we need to add words for intervening days.
-                // If today is NOT completed, today's words are NOT yet added to currentIndex in DB.
-                // So for tomorrow, we need to add today's words + tomorrow's words?
-                // No, currentIndex is "completed words".
-                // If today is NOT completed, today's range starts at currentIndex + 1.
-                // Tomorrow's range starts at currentIndex + 1 + today's words.
-
-                // So if today is study day and not completed, we add today's words to the offset for future days.
                 const todayOfWeek = getDay(today).toString();
                 const wordsForToday = dailyCounts[todayOfWeek] ? parseInt(dailyCounts[todayOfWeek]) : defaultWordsPerSession;
                 accumulatedWords += wordsForToday;
             }
 
-            const daysInRange = eachDayOfInterval({
-                start: new Date(today.getTime() + 24 * 60 * 60 * 1000), // Start from tomorrow
-                end: targetDate
-            });
-
-            // Iterate up to the day BEFORE targetDate to accumulate offset
-            // Actually, we want the range FOR targetDate.
-            // Start of targetDate = currentIndex + 1 + (words of all previous uncompleted days)
-
-            // If we use the loop above:
-            // If target is tomorrow (Friday). Today (Thursday) is uncompleted.
-            // accumulatedWords = wordsForToday.
-            // Loop starts tomorrow, ends tomorrow.
-            // We shouldn't add tomorrow's words to the START index of tomorrow.
-            // We should add tomorrow's words to the END index.
-
-            // Let's refine the loop. We need to sum up words for all days between Today (exclusive) and TargetDate (exclusive).
-
-            const daysBetween = eachDayOfInterval({
-                start: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-                end: new Date(targetDate.getTime() - 24 * 60 * 60 * 1000) // Up to yesterday relative to target
-            });
-
-            // If target is tomorrow, daysBetween is empty (start > end). Correct.
-
             if (targetDate > new Date(today.getTime() + 24 * 60 * 60 * 1000)) {
-                // Only loop if there are days in between
                 const interimDays = eachDayOfInterval({
                     start: new Date(today.getTime() + 24 * 60 * 60 * 1000),
                     end: new Date(targetDate.getTime() - 24 * 60 * 60 * 1000)
@@ -182,64 +124,9 @@ export default function StudentDashboard() {
             }
         } else {
             // Target is today
-            accumulatedWords = 0;
-        }
-
-        const targetDayOfWeek = getDay(targetDate).toString();
-        const wordsForTargetDay = dailyCounts[targetDayOfWeek] ? parseInt(dailyCounts[targetDayOfWeek]) : defaultWordsPerSession;
-
-        const baseWordNumber = currentIndex + 1;
-        const startWordNumber = baseWordNumber + accumulatedWords;
-        const endWordNumber = startWordNumber + wordsForTargetDay;
-
-        return { start: startWordNumber, end: endWordNumber };
-    };
-
-    const today = new Date();
-    const monthStart = startOfMonth(today);
-    const daysInMonth = eachDayOfInterval({
-        start: monthStart,
-        end: endOfMonth(today)
-    });
-
-    const getDayStatus = (date) => {
-        const isStudyDayFlag = isStudyDay(date);
-        const studied = history.some(h => isSameDay(new Date(h.date), date));
-        const isTodayFlag = isToday(date);
-        const isPast = date < new Date().setHours(0, 0, 0, 0);
-        const wordRange = getWordRangeForDate(date);
-
-        if (studied) {
-            return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', clickable: false, showInfo: true, wordRange };
-        }
-        if (isTodayFlag && isStudyDayFlag) {
-            return { bg: 'bg-gradient-to-br from-indigo-500 to-purple-600', text: 'text-white', border: 'border-indigo-600', clickable: true, showInfo: true, isToday: true, wordRange };
-        }
-        if (isStudyDayFlag && isPast) {
-            return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', clickable: true, showInfo: true, wordRange };
-        }
-        if (isStudyDayFlag) {
-            return { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', clickable: true, showInfo: true, wordRange };
-        }
-        return { bg: 'bg-gray-50', text: 'text-gray-300', border: 'border-gray-100', clickable: false, showInfo: false, wordRange: null };
-    };
-
-    return (
-        <div className="min-h-screen bg-gray-50">
-            <header className="bg-white shadow-sm">
-                <div className="max-w-4xl px-4 py-4 mx-auto flex justify-between items-center">
-                    <div className="flex items-center space-x-2">
-                        <CalendarIcon className="w-6 h-6 text-indigo-600" />
-                        <h1 className="text-xl font-bold text-gray-800">나의 학습 계획</h1>
-                    </div>
-                    <div className="flex items-center space-x-4">
-                        <span className="text-gray-600">안녕하세요, <b>{localStorage.getItem('name') || username}</b>님</span>
-                        <button onClick={handleLogout} className="p-2 text-gray-500 hover:text-red-600 transition-colors">
-                            <LogOut className="w-5 h-5" />
-                        </button>
-                    </div>
-                </div>
-            </header>
+                    </div >
+                </div >
+            </header >
             <div className="flex justify-center mb-6">
                 <button
                     onClick={() => navigate('/student/history')}
@@ -308,11 +195,11 @@ export default function StudentDashboard() {
                                     onClick={() => status.clickable && handleStartStudy(date)}
                                     disabled={!status.clickable}
                                     className={`
-                                        min-h-[80px] p-2 flex flex-col items-center justify-start rounded-lg border
-                                        ${status.bg} ${status.text} ${status.border}
-                                        ${status.clickable ? 'cursor-pointer hover:shadow-lg hover:scale-105 transition-all' : 'cursor-not-allowed opacity-60'}
-                                        ${status.isToday ? 'ring-4 ring-indigo-300 shadow-xl' : ''}
-                                    `}
+                                            min-h-[80px] p-2 flex flex-col items-center justify-start rounded-lg border
+                                            ${status.bg} ${status.text} ${status.border}
+                                            ${status.clickable ? 'cursor-pointer hover:shadow-lg hover:scale-105 transition-all' : 'cursor-not-allowed opacity-60'}
+                                            ${status.isToday ? 'ring-4 ring-indigo-300 shadow-xl' : ''}
+                                        `}
                                 >
                                     <div className={`font-semibold mb-1 ${status.isToday ? 'text-lg' : ''}`}>
                                         {format(date, 'd')}
@@ -349,6 +236,6 @@ export default function StudentDashboard() {
                     </p>
                 </div>
             </main>
-        </div>
+        </div >
     );
 }

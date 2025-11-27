@@ -79,7 +79,8 @@ export default function StudyPage() {
         navigate('/student/test', {
             state: {
                 studyStartIndex: rangeInfo.start,
-                studyEndIndex: rangeInfo.end
+                studyEndIndex: rangeInfo.end,
+                scheduledDate: location.state?.scheduledDate
             }
         });
     };

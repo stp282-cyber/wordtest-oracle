@@ -258,14 +258,29 @@ export default function TestInterface() {
                 retry_count: retryCount,
                 test_type: initialTestType,
                 completed: 1,
-                date: new Date().toISOString()
+                date: new Date().toISOString(),
+                scheduled_date: location.state?.scheduledDate || null
             });
 
             // Update User Progress
             const userRef = doc(db, 'users', userId);
-            await updateDoc(userRef, {
-                current_word_index: rangeEnd
-            });
+            const userSnap = await getDoc(userRef);
+            if (userSnap.exists()) {
+                const userData = userSnap.data();
+                const currentWordIndex = userData.current_word_index || 0;
+
+                // Only update if the new range end is greater than the current progress
+                if (rangeEnd > currentWordIndex) {
+                    await updateDoc(userRef, {
+                        current_word_index: rangeEnd
+                    });
+                }
+            } else {
+                // Fallback if user doc doesn't exist for some reason (unlikely)
+                await updateDoc(userRef, {
+                    current_word_index: rangeEnd
+                });
+            }
 
             setAllTestsComplete(true);
         } catch (err) {
