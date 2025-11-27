@@ -13,19 +13,6 @@ export default function AdminDashboard() {
     const [studentResults, setStudentResults] = useState([]);
     const navigate = useNavigate();
 
-    useEffect(() => {
-        fetchStudents();
-        fetchClasses();
-    }, []);
-
-    useEffect(() => {
-        if (selectedClass === 'all') {
-            setFilteredStudents(students);
-        } else {
-            setFilteredStudents(students.filter(s => s.class_id === selectedClass));
-        }
-    }, [selectedClass, students]);
-
     const fetchStudents = async () => {
         try {
             const q = query(collection(db, 'users'), where('role', '==', 'student'));
@@ -47,6 +34,19 @@ export default function AdminDashboard() {
             console.error("Error fetching classes:", err);
         }
     };
+
+    useEffect(() => {
+        fetchStudents();
+        fetchClasses();
+    }, []);
+
+    useEffect(() => {
+        if (selectedClass === 'all') {
+            setFilteredStudents(students);
+        } else {
+            setFilteredStudents(students.filter(s => s.class_id === selectedClass));
+        }
+    }, [selectedClass, students]);
 
     const fetchResults = async (id) => {
         try {

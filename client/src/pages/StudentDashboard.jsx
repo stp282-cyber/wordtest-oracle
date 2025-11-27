@@ -13,10 +13,6 @@ export default function StudentDashboard() {
     const navigate = useNavigate();
     const username = localStorage.getItem('username');
 
-    useEffect(() => {
-        fetchDashboard();
-    }, []);
-
     const fetchDashboard = async () => {
         const userId = localStorage.getItem('userId');
         if (!userId) return;
@@ -51,6 +47,10 @@ export default function StudentDashboard() {
             console.error("Error fetching dashboard data:", err);
         }
     };
+
+    useEffect(() => {
+        fetchDashboard();
+    }, []);
 
     const handleLogout = () => {
         auth.signOut();

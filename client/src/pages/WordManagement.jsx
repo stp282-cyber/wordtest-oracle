@@ -10,15 +10,6 @@ export default function WordManagement() {
     const [filterBookName, setFilterBookName] = useState('전체');
     const [bookNames, setBookNames] = useState([]);
 
-    useEffect(() => {
-        fetchWords();
-    }, []);
-
-    useEffect(() => {
-        const uniqueBooks = ['전체', ...new Set(words.map(w => w.book_name).filter(Boolean))];
-        setBookNames(uniqueBooks);
-    }, [words]);
-
     const fetchWords = async () => {
         try {
             const querySnapshot = await getDocs(collection(db, 'words'));
@@ -30,6 +21,15 @@ export default function WordManagement() {
             console.error("Error fetching words:", err);
         }
     };
+
+    useEffect(() => {
+        fetchWords();
+    }, []);
+
+    useEffect(() => {
+        const uniqueBooks = ['전체', ...new Set(words.map(w => w.book_name).filter(Boolean))];
+        setBookNames(uniqueBooks);
+    }, [words]);
 
     const handleExcelUpload = (e) => {
         const file = e.target.files[0];

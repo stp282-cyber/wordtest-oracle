@@ -35,12 +35,6 @@ export default function StudentManagement() {
         { value: '6', label: '토' }
     ];
 
-    useEffect(() => {
-        fetchStudents();
-        fetchBooks();
-        fetchClasses();
-    }, []);
-
     const fetchStudents = async () => {
         try {
             const q = query(collection(db, 'users'), where('role', '==', 'student'));
@@ -72,6 +66,12 @@ export default function StudentManagement() {
             console.error("Error fetching classes:", err);
         }
     };
+
+    useEffect(() => {
+        fetchStudents();
+        fetchBooks();
+        fetchClasses();
+    }, []);
 
     const handleMarkAbsent = async (studentId) => {
         if (!absenceDate) {

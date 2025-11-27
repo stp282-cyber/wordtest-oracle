@@ -11,10 +11,6 @@ export default function StudyPage() {
     const navigate = useNavigate();
     const location = useLocation();
 
-    useEffect(() => {
-        fetchWords();
-    }, []);
-
     const fetchWords = async () => {
         const userId = localStorage.getItem('userId');
 
@@ -74,6 +70,10 @@ export default function StudyPage() {
             navigate('/student');
         }
     };
+
+    useEffect(() => {
+        fetchWords();
+    }, []);
 
     const handleStartTest = () => {
         navigate('/student/test', {

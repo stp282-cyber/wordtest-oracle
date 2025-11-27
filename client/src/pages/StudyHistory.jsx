@@ -8,10 +8,6 @@ export default function StudyHistory() {
     const [history, setHistory] = useState([]);
     const navigate = useNavigate();
 
-    useEffect(() => {
-        fetchHistory();
-    }, []);
-
     const fetchHistory = async () => {
         const userId = localStorage.getItem('userId');
         try {
@@ -62,6 +58,10 @@ export default function StudyHistory() {
             navigate('/student');
         }
     };
+
+    useEffect(() => {
+        fetchHistory();
+    }, []);
 
     const formatDate = (dateStr) => {
         const d = new Date(dateStr);
