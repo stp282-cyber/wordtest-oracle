@@ -154,9 +154,13 @@ export default function StudentManagement() {
                 words_per_day: student.words_per_day || {},
                 current_word_index: student.current_word_index,
 <<<<<<< HEAD
+<<<<<<< HEAD
                 name: student.name,
                 book_settings: student.book_settings || {},
                 book_progress: student.book_progress || {}
+=======
+                name: student.name
+>>>>>>> parent of 88f66ca (2)
 =======
                 name: student.name
 >>>>>>> parent of 88f66ca (2)
@@ -410,6 +414,7 @@ export default function StudentManagement() {
                                                                     }
 
 <<<<<<< HEAD
+<<<<<<< HEAD
                                                         <div key={book} className="border-b border-gray-100 last:border-0 pb-2 mb-2">
                                                             <label className="flex items-center space-x-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
                                                                 <input
@@ -493,6 +498,8 @@ export default function StudentManagement() {
                                                             )}
                                                         </div>
 =======
+=======
+>>>>>>> parent of 88f66ca (2)
                                                                     setStudents(students.map(s =>
                                                                         s.id === student.id ? {
                                                                             ...s,
@@ -505,6 +512,9 @@ export default function StudentManagement() {
                                                             />
                                                             <span className="text-sm text-gray-700">{book}</span>
                                                         </label>
+<<<<<<< HEAD
+>>>>>>> parent of 88f66ca (2)
+=======
 >>>>>>> parent of 88f66ca (2)
                                                     );
                                                 })}
