@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from 'date-fns';
-import { LogOut, BookOpen, Calendar as CalendarIcon, CheckCircle } from 'lucide-react';
+import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay, addMonths, subMonths } from 'date-fns';
+import { LogOut, BookOpen, Calendar as CalendarIcon, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { db, auth } from '../firebase';
 import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
@@ -9,6 +9,7 @@ export default function StudentDashboard() {
     const [history, setHistory] = useState([]);
     const [settings, setSettings] = useState(null);
     const [todayCompleted, setTodayCompleted] = useState(false);
+    const [currentMonth, setCurrentMonth] = useState(new Date());
     const navigate = useNavigate();
     const username = localStorage.getItem('username');
 
@@ -67,6 +68,16 @@ export default function StudentDashboard() {
     const getWordRangeForDate = (date) => {
         if (!settings) return null;
 
+        // 1. Check history first! Use actual recorded range for completed days.
+        // const historyRecord = history.find(h => {
+        //     const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
+        //     return isSameDay(recordDate, date);
+        // });
+
+        // if (historyRecord && historyRecord.range_start && historyRecord.range_end) {
+        //     return { start: historyRecord.range_start, end: historyRecord.range_end };
+        // }
+
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const targetDate = new Date(date);
@@ -76,11 +87,15 @@ export default function StudentDashboard() {
         const defaultWordsPerSession = settings.words_per_session || 10;
         const dailyCounts = settings.words_per_day || {};
 
-        const todayCompleted = history.some(h => {
-            const historyDate = new Date(h.date);
-            const scheduledDate = h.scheduled_date ? new Date(h.scheduled_date) : null;
-            return isSameDay(historyDate, today) || (scheduledDate && isSameDay(scheduledDate, today));
-        });
+        // Helper to check if a specific day was completed
+        const isDayCompleted = (dayToCheck) => {
+            return history.some(h => {
+                const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
+                return isSameDay(recordDate, dayToCheck);
+            });
+        };
+
+        const todayCompleted = isDayCompleted(today);
 
         let accumulatedWords = 0;
 
@@ -91,11 +106,7 @@ export default function StudentDashboard() {
             });
 
             for (const day of daysInRange) {
-                if (isStudyDay(day) && !history.some(h => {
-                    const historyDate = new Date(h.date);
-                    const scheduledDate = h.scheduled_date ? new Date(h.scheduled_date) : null;
-                    return isSameDay(historyDate, day) || (scheduledDate && isSameDay(scheduledDate, day));
-                })) {
+                if (isDayCompleted(day)) {
                     const dayOfWeek = getDay(day).toString();
                     const wordsForThisDay = dailyCounts[dayOfWeek] ? parseInt(dailyCounts[dayOfWeek]) : defaultWordsPerSession;
                     accumulatedWords -= wordsForThisDay;
@@ -124,9 +135,99 @@ export default function StudentDashboard() {
             }
         } else {
             // Target is today
-                    </div >
-                </div >
-            </header >
+            accumulatedWords = 0;
+        }
+
+        const targetDayOfWeek = getDay(targetDate).toString();
+        const wordsForTargetDay = dailyCounts[targetDayOfWeek] ? parseInt(dailyCounts[targetDayOfWeek]) : defaultWordsPerSession;
+
+        const baseWordNumber = currentIndex;
+        const startWordNumber = baseWordNumber + accumulatedWords;
+        const endWordNumber = startWordNumber + wordsForTargetDay;
+
+        return { start: startWordNumber, end: endWordNumber };
+    };
+
+    const handleStartStudy = (date) => {
+        const wordRange = getWordRangeForDate(date);
+        if (wordRange) {
+            navigate('/student/study', {
+                state: {
+                    studyStartIndex: wordRange.start,
+                    studyEndIndex: wordRange.end,
+                    scheduledDate: date.toISOString()
+                }
+            });
+        } else {
+            navigate('/student/study', {
+                state: {
+                    scheduledDate: date.toISOString()
+                }
+            });
+        }
+    };
+
+    const handlePrevMonth = () => {
+        setCurrentMonth(prev => subMonths(prev, 1));
+    };
+
+    const handleNextMonth = () => {
+        setCurrentMonth(prev => addMonths(prev, 1));
+    };
+
+    const today = new Date();
+    const monthStart = startOfMonth(currentMonth);
+    const daysInMonth = eachDayOfInterval({
+        start: monthStart,
+        end: endOfMonth(currentMonth)
+    });
+
+    const getDayStatus = (date) => {
+        const isStudyDayFlag = isStudyDay(date);
+        const studied = history.some(h => {
+            const historyDate = new Date(h.date);
+            const scheduledDate = h.scheduled_date ? new Date(h.scheduled_date) : null;
+            return isSameDay(historyDate, date) || (scheduledDate && isSameDay(scheduledDate, date));
+        });
+        const isTodayFlag = isToday(date);
+        const isPast = date < new Date().setHours(0, 0, 0, 0);
+        const wordRange = getWordRangeForDate(date);
+
+        if (studied) {
+            return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', clickable: true, showInfo: true, wordRange, isToday: isTodayFlag };
+        }
+        if (isTodayFlag && isStudyDayFlag) {
+            return { bg: 'bg-indigo-100', text: 'text-indigo-900', border: 'border-indigo-500', clickable: true, showInfo: true, isToday: true, wordRange };
+        }
+        if (isTodayFlag && !isStudyDayFlag) {
+            return { bg: 'bg-white', text: 'text-indigo-900', border: 'border-indigo-600 ring-2 ring-indigo-100', clickable: false, showInfo: false, isToday: true, wordRange: null };
+        }
+        if (isStudyDayFlag && isPast) {
+            return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', clickable: true, showInfo: true, wordRange, isToday: isTodayFlag };
+        }
+        if (isStudyDayFlag) {
+            return { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', clickable: true, showInfo: true, wordRange, isToday: isTodayFlag };
+        }
+        // Non-study days are NOT clickable
+        return { bg: 'bg-gray-50', text: 'text-gray-400', border: 'border-gray-100', clickable: false, showInfo: false, wordRange: null, isToday: isTodayFlag };
+    };
+
+    return (
+        <div className="min-h-screen bg-gray-50">
+            <header className="bg-white shadow-sm">
+                <div className="max-w-4xl px-4 py-4 mx-auto flex justify-between items-center">
+                    <div className="flex items-center space-x-2">
+                        <CalendarIcon className="w-6 h-6 text-indigo-600" />
+                        <h1 className="text-xl font-bold text-gray-800">나의 학습 계획</h1>
+                    </div>
+                    <div className="flex items-center space-x-4">
+                        <span className="text-gray-600">안녕하세요, <b>{localStorage.getItem('name') || username}</b>님</span>
+                        <button onClick={handleLogout} className="p-2 text-gray-500 hover:text-red-600 transition-colors">
+                            <LogOut className="w-5 h-5" />
+                        </button>
+                    </div>
+                </div>
+            </header>
             <div className="flex justify-center mb-6">
                 <button
                     onClick={() => navigate('/student/history')}
@@ -155,7 +256,15 @@ export default function StudentDashboard() {
 
                 <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
                     <div className="flex items-center justify-between mb-6">
-                        <h2 className="text-lg font-semibold text-gray-800">{format(today, 'yyyy년 M월')}</h2>
+                        <div className="flex items-center space-x-4">
+                            <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                                <ChevronLeft className="w-5 h-5 text-gray-600" />
+                            </button>
+                            <h2 className="text-lg font-semibold text-gray-800">{format(currentMonth, 'yyyy년 M월')}</h2>
+                            <button onClick={handleNextMonth} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                                <ChevronRight className="w-5 h-5 text-gray-600" />
+                            </button>
+                        </div>
                         <div className="flex items-center space-x-4 text-xs">
                             <div className="flex items-center space-x-1">
                                 <div className="w-3 h-3 bg-green-100 border border-green-300 rounded"></div>
@@ -206,7 +315,7 @@ export default function StudentDashboard() {
                                         {status.isToday && <div className="text-[8px] font-normal">오늘</div>}
                                     </div>
                                     {status.showInfo && status.wordRange && (
-                                        <div className={`text-[10px] text-center leading-tight ${status.isToday ? 'text-white' : ''}`}>
+                                        <div className="text-[10px] text-center leading-tight">
                                             <div className="font-medium">{settings?.book_name || '기본'}</div>
                                             <div>#{status.wordRange.start} - #{status.wordRange.end - 1}</div>
                                         </div>
@@ -236,6 +345,6 @@ export default function StudentDashboard() {
                     </p>
                 </div>
             </main>
-        </div >
+        </div>
     );
 }
