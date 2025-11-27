@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowRight, Check, RotateCcw, BookOpen } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function TestInterface() {
     const [loading, setLoading] = useState(true);
@@ -21,6 +23,7 @@ export default function TestInterface() {
     const [initialTestType, setInitialTestType] = useState('new_words');
 
     const navigate = useNavigate();
+    const location = useLocation();
 
     useEffect(() => {
         fetchTest();
@@ -45,44 +48,101 @@ export default function TestInterface() {
 
     const fetchTest = async () => {
         const userId = localStorage.getItem('userId');
-        const studyStartIndex = localStorage.getItem('studyStartIndex');
+        let studyStartIndex = localStorage.getItem('studyStartIndex');
+        let studyEndIndex = localStorage.getItem('studyEndIndex');
+
+        // Check location state for range overrides
+        if (location.state?.studyStartIndex !== undefined && location.state?.studyEndIndex !== undefined) {
+            studyStartIndex = location.state.studyStartIndex;
+            studyEndIndex = location.state.studyEndIndex;
+        }
 
         try {
-            let url = `http://localhost:5000/api/student/test?userId=${userId}`;
-            if (studyStartIndex) {
-                url += `&startIndex=${studyStartIndex}`;
+            // 1. Get User Settings
+            const userDoc = await getDoc(doc(db, 'users', userId));
+            if (!userDoc.exists()) {
+                alert('사용자 설정을 찾을 수 없습니다.');
+                navigate('/student');
+                return;
+            }
+            const settings = userDoc.data();
+            const bookName = settings.book_name || '기본';
+            const currentWordIndex = settings.current_word_index || 0;
+
+            // 2. Determine Range
+            // 2. Determine Range
+            let startWordNumber;
+            let endWordNumber;
+
+            // Check if values exist (checking for null or undefined, allowing 0)
+            if (studyStartIndex != null && studyEndIndex != null) {
+                startWordNumber = parseInt(studyStartIndex);
+                endWordNumber = parseInt(studyEndIndex);
+                console.log('Using stored range:', startWordNumber, endWordNumber);
+            } else {
+                startWordNumber = currentWordIndex + 1;
+
+                const today = new Date().getDay().toString();
+                const dailyCounts = settings.words_per_day || {};
+                const wordsPerSession = dailyCounts[today] ? parseInt(dailyCounts[today]) : (settings.words_per_session || 10);
+
+                endWordNumber = startWordNumber + wordsPerSession;
+                console.log('Using calculated range (Today):', startWordNumber, endWordNumber);
             }
 
-            const res = await fetch(url);
-            const data = await res.json();
-            if (res.ok) {
-                const newWordsData = data.newWords || [];
-                const reviewWordsData = data.reviewWords || [];
-                setNewWords(newWordsData);
-                setReviewWords(reviewWordsData);
-                setRangeStart(data.rangeStart || 0);
-                setRangeEnd(data.rangeEnd || 0);
+            // Review Range
+            const currentSessionLength = endWordNumber - startWordNumber;
+            const reviewStartWordNumber = Math.max(1, startWordNumber - (currentSessionLength * 2));
+            const reviewEndWordNumber = startWordNumber;
 
-                // Determine initial test type
-                if (newWordsData.length > 0) {
-                    setInitialTestType('new_words');
-                } else {
-                    setInitialTestType('review_words');
-                }
+            // 3. Fetch Words
+            const wordsQuery = query(
+                collection(db, 'words'),
+                where('book_name', '==', bookName)
+            );
+            const querySnapshot = await getDocs(wordsQuery);
+            const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-                if (newWordsData.length > 0) {
-                    setCurrentTestWords(shuffleArray(newWordsData));
-                    setTestMode('new');
-                } else if (reviewWordsData.length > 0) {
-                    setShowWrongWordsReview(true);
-                    setWrongWords(reviewWordsData);
-                    setTestMode('review-study');
-                } else {
-                    alert('학습할 단어가 없습니다.');
-                }
+            // 4. Filter
+            const newWordsData = allWords
+                .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
+                .sort((a, b) => a.word_number - b.word_number);
+
+            const reviewWordsData = allWords
+                .filter(w => w.word_number >= reviewStartWordNumber && w.word_number < reviewEndWordNumber)
+                .sort((a, b) => a.word_number - b.word_number);
+
+            if (newWordsData.length === 0 && allWords.length === 0) {
+                alert('학습할 단어가 없습니다.');
+                navigate('/student');
+                return;
             }
+
+            setNewWords(newWordsData);
+            setReviewWords(reviewWordsData);
+
+            setRangeStart(startWordNumber);
+            setRangeEnd(endWordNumber);
+
+            // Determine initial test type
+            if (newWordsData.length > 0) {
+                setInitialTestType('new_words');
+                setCurrentTestWords(shuffleArray(newWordsData));
+                setTestMode('new');
+            } else if (reviewWordsData.length > 0) {
+                setInitialTestType('review_words');
+                setShowWrongWordsReview(true);
+                setWrongWords(reviewWordsData);
+                setTestMode('review-study');
+            } else {
+                alert('학습할 단어가 없습니다.');
+                navigate('/student');
+            }
+
         } catch (err) {
             console.error(err);
+            alert('데이터 불러오기 실패');
+            navigate('/student');
         } finally {
             setLoading(false);
         }
@@ -178,30 +238,40 @@ export default function TestInterface() {
         }
     };
 
-    const submitAndFinish = () => {
+    const submitAndFinish = async () => {
         const totalWords = newWords.length + reviewWords.length;
         const allAnswers = Object.values(answers);
         const correctCount = allAnswers.filter((a) => a.correct).length;
         const score = totalWords > 0 ? Math.round((correctCount / totalWords) * 100) : 0;
 
         const userId = localStorage.getItem('userId');
-        fetch('http://localhost:5000/api/student/test/submit', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                userId,
-                score,
-                details: Object.entries(answers).map(([id, val]) => ({ word_id: id, ...val })),
-                rangeStart,
-                rangeEnd,
-                firstAttemptScore: firstAttemptScore || score,
-                retryCount: retryCount,
-                testType: initialTestType,
-                completed: true
-            }),
-        });
 
-        setAllTestsComplete(true);
+        try {
+            // Save Test Result
+            await addDoc(collection(db, 'test_results'), {
+                user_id: userId,
+                score: score,
+                details: JSON.stringify(Object.entries(answers).map(([id, val]) => ({ word_id: id, ...val }))),
+                range_start: rangeStart,
+                range_end: rangeEnd,
+                first_attempt_score: firstAttemptScore || score,
+                retry_count: retryCount,
+                test_type: initialTestType,
+                completed: 1,
+                date: new Date().toISOString()
+            });
+
+            // Update User Progress
+            const userRef = doc(db, 'users', userId);
+            await updateDoc(userRef, {
+                current_word_index: rangeEnd
+            });
+
+            setAllTestsComplete(true);
+        } catch (err) {
+            console.error("Error submitting results:", err);
+            alert("결과 저장 중 오류가 발생했습니다.");
+        }
     };
 
     if (loading) return <div className="p-8 text-center">시험지 생성 중...</div>;
@@ -332,7 +402,7 @@ export default function TestInterface() {
                             {getModeLabel()} - 문제 {currentProgress} / {totalProgress}
                         </span>
                         <h2 className="mt-4 text-4xl font-bold">
-                            {testMode === 'review' ? currentWord.english : currentWord.korean}
+                            {currentWord ? (testMode === 'review' ? currentWord.english : currentWord.korean) : 'Loading...'}
                         </h2>
                         <p className={`mt-2 text-sm ${retryMode ? 'text-red-200' : 'text-indigo-200'}`}>
                             {testMode === 'review' ? '한글 뜻을 선택하세요' : '영어 단어를 입력하세요'}

@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Users } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, getDocs, addDoc, deleteDoc, doc } from 'firebase/firestore';
 
 export default function ClassManagement() {
     const [classes, setClasses] = useState([]);
@@ -14,16 +16,12 @@ export default function ClassManagement() {
 
     const fetchClasses = async () => {
         try {
-            const res = await fetch('http://localhost:5000/api/admin/classes');
-            const data = await res.json();
-            if (res.ok) {
-                setClasses(data);
-            } else {
-                alert('반 목록을 불러오는데 실패했습니다.');
-            }
+            const querySnapshot = await getDocs(collection(db, 'classes'));
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setClasses(data);
         } catch (err) {
             console.error(err);
-            alert('서버 연결 실패');
+            alert('반 목록을 불러오는데 실패했습니다.');
         } finally {
             setLoading(false);
         }
@@ -34,21 +32,16 @@ export default function ClassManagement() {
         if (!newClassName.trim()) return;
 
         try {
-            const res = await fetch('http://localhost:5000/api/admin/classes', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ name: newClassName }),
+            const docRef = await addDoc(collection(db, 'classes'), {
+                name: newClassName,
+                created_at: new Date().toISOString()
             });
-            const data = await res.json();
-            if (res.ok) {
-                setClasses([...classes, { id: data.id, name: newClassName, created_at: new Date().toISOString() }]);
-                setNewClassName('');
-            } else {
-                alert(data.error || '반 추가 실패');
-            }
+
+            setClasses([...classes, { id: docRef.id, name: newClassName, created_at: new Date().toISOString() }]);
+            setNewClassName('');
         } catch (err) {
             console.error(err);
-            alert('서버 오류');
+            alert('반 추가 실패');
         }
     };
 
@@ -56,17 +49,11 @@ export default function ClassManagement() {
         if (!window.confirm('정말 이 반을 삭제하시겠습니까? 소속된 학생들의 반 정보가 초기화됩니다.')) return;
 
         try {
-            const res = await fetch(`http://localhost:5000/api/admin/classes/${id}`, {
-                method: 'DELETE',
-            });
-            if (res.ok) {
-                setClasses(classes.filter((c) => c.id !== id));
-            } else {
-                alert('반 삭제 실패');
-            }
+            await deleteDoc(doc(db, 'classes', id));
+            setClasses(classes.filter((c) => c.id !== id));
         } catch (err) {
             console.error(err);
-            alert('서버 오류');
+            alert('반 삭제 실패');
         }
     };
 

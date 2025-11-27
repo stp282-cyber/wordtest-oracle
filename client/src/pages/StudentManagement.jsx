@@ -1,5 +1,20 @@
 import React, { useState, useEffect } from 'react';
 import { UserPlus, Users, Calendar, X } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, getDocs, updateDoc, deleteDoc, doc, setDoc, query, where } from 'firebase/firestore';
+import { initializeApp } from 'firebase/app';
+import { getAuth, createUserWithEmailAndPassword } from 'firebase/auth';
+
+// Need config to create a secondary app for creating users without logging out admin
+const firebaseConfig = {
+    apiKey: "AIzaSyCW4NbNdOkfs-lPSNFDyNqRTCPYimL7rks",
+    authDomain: "eastern-wordtest.firebaseapp.com",
+    projectId: "eastern-wordtest",
+    storageBucket: "eastern-wordtest.firebasestorage.app",
+    messagingSenderId: "908358368350",
+    appId: "1:908358368350:web:18a2197cf035fb118088cf",
+    measurementId: "G-WHCV2L49WK"
+};
 
 export default function StudentManagement() {
     const [students, setStudents] = useState([]);
@@ -27,25 +42,34 @@ export default function StudentManagement() {
     }, []);
 
     const fetchStudents = async () => {
-        const res = await fetch('http://localhost:5000/api/admin/students');
-        const data = await res.json();
-        setStudents(data);
+        try {
+            const q = query(collection(db, 'users'), where('role', '==', 'student'));
+            const querySnapshot = await getDocs(q);
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setStudents(data);
+        } catch (err) {
+            console.error("Error fetching students:", err);
+        }
     };
 
     const fetchBooks = async () => {
-        const res = await fetch('http://localhost:5000/api/admin/words');
-        const data = await res.json();
-        const uniqueBooks = [...new Set(data.map(w => w.book_name).filter(Boolean))];
-        setBooks(uniqueBooks);
+        try {
+            const querySnapshot = await getDocs(collection(db, 'words'));
+            const data = querySnapshot.docs.map(doc => doc.data());
+            const uniqueBooks = [...new Set(data.map(w => w.book_name).filter(Boolean))];
+            setBooks(uniqueBooks);
+        } catch (err) {
+            console.error("Error fetching books:", err);
+        }
     };
 
     const fetchClasses = async () => {
         try {
-            const res = await fetch('http://localhost:5000/api/admin/classes');
-            const data = await res.json();
-            if (res.ok) setClasses(data);
+            const querySnapshot = await getDocs(collection(db, 'classes'));
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setClasses(data);
         } catch (err) {
-            console.error(err);
+            console.error("Error fetching classes:", err);
         }
     };
 
@@ -54,45 +78,28 @@ export default function StudentManagement() {
             alert('날짜를 선택해주세요');
             return;
         }
-
-        try {
-            const res = await fetch(`http://localhost:5000/api/admin/students/${studentId}/absence`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ absenceDate })
-            });
-
-            if (res.ok) {
-                alert('공강 처리되었습니다. 학생의 진도가 자동으로 조정됩니다.');
-                setShowAbsenceModal(null);
-                setAbsenceDate('');
-            }
-        } catch (err) {
-            console.error(err);
-            alert('공강 처리 실패');
-        }
+        // In a real app, you'd implement complex date shifting logic here or via Cloud Functions.
+        // For this serverless migration, we'll just alert.
+        alert("공강 처리 기능은 현재 서버리스 버전에서 지원되지 않습니다. (추후 업데이트 예정)");
+        setShowAbsenceModal(null);
     };
 
     const handleUpdateClass = async (studentId, classId) => {
         try {
-            const res = await fetch(`http://localhost:5000/api/admin/students/${studentId}/class`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ class_id: classId || null })
+            const studentRef = doc(db, 'users', studentId);
+            await updateDoc(studentRef, {
+                class_id: classId || null,
+                class_name: classes.find(c => c.id === classId)?.name || null
             });
 
-            if (res.ok) {
-                setStudents(students.map(s =>
-                    s.id === studentId
-                        ? { ...s, class_id: classId, class_name: classes.find(c => c.id == classId)?.name }
-                        : s
-                ));
-            } else {
-                alert('반 배정 실패');
-            }
+            setStudents(students.map(s =>
+                s.id === studentId
+                    ? { ...s, class_id: classId, class_name: classes.find(c => c.id === classId)?.name }
+                    : s
+            ));
         } catch (err) {
             console.error(err);
-            alert('서버 오류');
+            alert('반 배정 실패');
         }
     };
 
@@ -104,67 +111,72 @@ export default function StudentManagement() {
         }
 
         try {
-            const res = await fetch('http://localhost:5000/api/auth/register', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    username: newStudent.username,
-                    password: newStudent.password,
-                    name: newStudent.name,
-                    role: 'student'
-                })
+            // Create a secondary app to create user without logging out Admin
+            const secondaryApp = initializeApp(firebaseConfig, "Secondary");
+            const secondaryAuth = getAuth(secondaryApp);
+
+            const email = newStudent.username.includes('@') ? newStudent.username : `${newStudent.username}@wordtest.com`;
+            const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, newStudent.password);
+            const user = userCredential.user;
+
+            await setDoc(doc(db, 'users', user.uid), {
+                username: newStudent.username,
+                name: newStudent.name,
+                role: 'student',
+                created_at: new Date().toISOString(),
+                book_name: '기본',
+                study_days: '1,2,3,4,5',
+                words_per_session: 10,
+                current_word_index: 0
             });
 
-            const data = await res.json();
-            if (data.success) {
-                alert('학생이 등록되었습니다!');
-                setNewStudent({ username: '', password: '', name: '' });
-                fetchStudents();
-            } else {
-                alert('등록 실패: ' + (data.error || '알 수 없는 오류'));
-            }
+            alert('학생이 등록되었습니다!');
+            setNewStudent({ username: '', password: '', name: '' });
+            fetchStudents();
+
+            // Clean up secondary app (optional, but good practice if supported, though deleteApp is async)
+            // deleteApp(secondaryApp); 
         } catch (err) {
+            console.error("Registration error:", err);
             alert('등록 실패: ' + err.message);
         }
     };
 
     const handleUpdateSettings = async (student) => {
         try {
-            const res = await fetch(`http://localhost:5000/api/admin/students/${student.id}/settings`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({
-                    book_name: student.book_name,
-                    study_days: student.study_days,
-                    words_per_session: student.words_per_session,
-                    current_word_index: student.current_word_index,
-                    password: student.newPassword,
-                    name: student.name
-                })
-            });
+            const studentRef = doc(db, 'users', student.id);
+            const updates = {
+                book_name: student.book_name,
+                study_days: student.study_days,
+                words_per_session: student.words_per_session,
+                words_per_day: student.words_per_day || {},
+                current_word_index: student.current_word_index,
+                name: student.name
+            };
 
-            if (res.ok) {
-                alert('설정이 업데이트되었습니다!');
-                setEditingStudent(null);
-                fetchStudents();
-            }
+            // Note: Password update in Auth is not handled here due to client SDK limitations.
+            // We could update a 'password_hint' field in Firestore if really needed, but better to skip.
+
+            await updateDoc(studentRef, updates);
+
+            alert('설정이 업데이트되었습니다!');
+            setEditingStudent(null);
+            fetchStudents();
         } catch (err) {
             alert('업데이트 실패: ' + err.message);
         }
     };
 
     const handleDeleteStudent = async (userId) => {
-        if (!confirm('이 학생을 삭제하시겠습니까?')) return;
+        if (!confirm('이 학생을 삭제하시겠습니까? (복구 불가)')) return;
 
         try {
-            const res = await fetch(`http://localhost:5000/api/admin/students/${userId}`, {
-                method: 'DELETE'
-            });
+            await deleteDoc(doc(db, 'users', userId));
+            // Note: Auth user is not deleted here. They just lose access to data.
+            // To delete Auth user, Cloud Functions are best.
 
-            if (res.ok) {
-                alert('학생이 삭제되었습니다.');
-                fetchStudents();
-            }
+            alert('학생 데이터가 삭제되었습니다.');
+            fetchStudents();
         } catch (err) {
             alert('삭제 실패: ' + err.message);
         }
@@ -285,9 +297,9 @@ export default function StudentManagement() {
                                 </div>
 
                                 <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                                    {/* Name & Password (Edit Mode) */}
+                                    {/* Name (Edit Mode) */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">이름 & 비밀번호 변경</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">이름 변경</label>
                                         {editingStudent === student.id ? (
                                             <div className="space-y-2">
                                                 <input
@@ -299,19 +311,10 @@ export default function StudentManagement() {
                                                     placeholder="이름"
                                                     className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
                                                 />
-                                                <input
-                                                    type="text"
-                                                    value={student.newPassword || ''}
-                                                    onChange={(e) => setStudents(students.map(s =>
-                                                        s.id === student.id ? { ...s, newPassword: e.target.value } : s
-                                                    ))}
-                                                    placeholder="새 비밀번호 (변경시에만 입력)"
-                                                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                                />
                                             </div>
                                         ) : (
                                             <p className="text-gray-600 py-2 text-sm">
-                                                비밀번호 변경은 수정 모드에서 가능
+                                                {student.name}
                                             </p>
                                         )}
                                     </div>
@@ -416,6 +419,54 @@ export default function StudentManagement() {
                                             </p>
                                         )}
                                     </div>
+
+                                    {/* Daily Word Counts */}
+                                    {editingStudent === student.id && (
+                                        <div className="md:col-span-3 mt-2">
+                                            <label className="block text-sm font-medium text-gray-700 mb-2">요일별 단어 수 (설정 시 기본값 대신 적용됨)</label>
+                                            <div className="flex flex-wrap gap-3">
+                                                {weekDays.map(day => {
+                                                    const isSelected = (student.study_days || '1,2,3,4,5').split(',').includes(day.value);
+                                                    if (!isSelected) return null;
+
+                                                    return (
+                                                        <div key={day.value} className="flex flex-col items-center bg-gray-50 p-2 rounded-lg border border-gray-200">
+                                                            <span className="text-xs font-medium text-gray-600 mb-1">{day.label}요일</span>
+                                                            <input
+                                                                type="number"
+                                                                placeholder={student.words_per_session || 10}
+                                                                value={student.words_per_day?.[day.value] || ''}
+                                                                onChange={(e) => {
+                                                                    const val = e.target.value;
+                                                                    const newWordsPerDay = { ...(student.words_per_day || {}) };
+                                                                    if (val) {
+                                                                        newWordsPerDay[day.value] = parseInt(val);
+                                                                    } else {
+                                                                        delete newWordsPerDay[day.value];
+                                                                    }
+                                                                    setStudents(students.map(s =>
+                                                                        s.id === student.id ? { ...s, words_per_day: newWordsPerDay } : s
+                                                                    ));
+                                                                }}
+                                                                className="w-16 px-2 py-1 text-center border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                                            />
+                                                        </div>
+                                                    );
+                                                })}
+                                            </div>
+                                        </div>
+                                    )}
+
+                                    {/* Display Daily Overrides in View Mode */}
+                                    {editingStudent !== student.id && student.words_per_day && Object.keys(student.words_per_day).length > 0 && (
+                                        <div className="md:col-span-3 mt-1">
+                                            <p className="text-xs text-gray-500">
+                                                요일별 설정: {Object.entries(student.words_per_day).map(([dayVal, count]) =>
+                                                    `${weekDays.find(d => d.value === dayVal)?.label}요일(${count}개)`
+                                                ).join(', ')}
+                                            </p>
+                                        </div>
+                                    )}
                                 </div>
                             </div>
                         ))}

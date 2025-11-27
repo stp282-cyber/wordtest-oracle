@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { Upload, Trash2, Plus, BookOpen } from 'lucide-react';
 import * as XLSX from 'xlsx';
+import { db } from '../firebase';
+import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
 
 export default function WordManagement() {
     const [words, setWords] = useState([]);
@@ -18,9 +20,15 @@ export default function WordManagement() {
     }, [words]);
 
     const fetchWords = async () => {
-        const res = await fetch('http://localhost:5000/api/admin/words');
-        const data = await res.json();
-        setWords(data);
+        try {
+            const querySnapshot = await getDocs(collection(db, 'words'));
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort by word_number if available
+            data.sort((a, b) => (a.word_number || 0) - (b.word_number || 0));
+            setWords(data);
+        } catch (err) {
+            console.error("Error fetching words:", err);
+        }
     };
 
     const handleExcelUpload = (e) => {
@@ -36,7 +44,7 @@ export default function WordManagement() {
 
             const formattedWords = jsonData.map(row => ({
                 book_name: row.단어장명 || row.book_name || '기본',
-                word_number: row.번호 || row.word_number || null,
+                word_number: row.번호 || row.word_number ? parseInt(row.번호 || row.word_number) : null,
                 english: row.영단어 || row.english || row.영어 || '',
                 korean: row.뜻 || row.korean || row.한글 || ''
             })).filter(w => w.english && w.korean);
@@ -51,22 +59,25 @@ export default function WordManagement() {
     const uploadWords = async (wordsToUpload) => {
         try {
             console.log('Uploading words:', wordsToUpload);
-            const res = await fetch('http://localhost:5000/api/admin/words', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ words: wordsToUpload })
-            });
 
-            console.log('Response status:', res.status);
-            const data = await res.json();
-            console.log('Response data:', data);
-
-            if (data.success) {
-                alert(`${data.count}개의 단어가 추가되었습니다!`);
-                fetchWords();
-            } else {
-                alert('업로드 실패: ' + (data.error || '알 수 없는 오류'));
+            // Firestore batch write (limit 500 operations per batch)
+            const batchSize = 500;
+            const chunks = [];
+            for (let i = 0; i < wordsToUpload.length; i += batchSize) {
+                chunks.push(wordsToUpload.slice(i, i + batchSize));
             }
+
+            for (const chunk of chunks) {
+                const batch = writeBatch(db);
+                chunk.forEach(word => {
+                    const docRef = doc(collection(db, "words")); // Auto-ID
+                    batch.set(docRef, word);
+                });
+                await batch.commit();
+            }
+
+            alert(`${wordsToUpload.length}개의 단어가 추가되었습니다!`);
+            fetchWords();
         } catch (err) {
             console.error('Upload error:', err);
             alert('업로드 실패: ' + err.message);
@@ -77,20 +88,25 @@ export default function WordManagement() {
         e.preventDefault();
         if (!newWord.english || !newWord.korean) return;
 
-        await uploadWords([newWord]);
-        setNewWord({ book_name: '기본', word_number: '', english: '', korean: '' });
+        try {
+            await addDoc(collection(db, 'words'), {
+                ...newWord,
+                word_number: newWord.word_number ? parseInt(newWord.word_number) : null
+            });
+            setNewWord({ book_name: '기본', word_number: '', english: '', korean: '' });
+            fetchWords();
+        } catch (err) {
+            console.error("Error adding word:", err);
+            alert("단어 추가 실패");
+        }
     };
 
     const handleDeleteWord = async (id) => {
         if (!confirm('이 단어를 삭제하시겠습니까?')) return;
 
         try {
-            const res = await fetch(`http://localhost:5000/api/admin/words/${id}`, {
-                method: 'DELETE'
-            });
-            if (res.ok) {
-                fetchWords();
-            }
+            await deleteDoc(doc(db, 'words', id));
+            fetchWords();
         } catch (err) {
             alert('삭제 실패: ' + err.message);
         }

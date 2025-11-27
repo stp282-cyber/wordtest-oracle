@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, CheckCircle } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function StudyHistory() {
     const [history, setHistory] = useState([]);
@@ -13,19 +15,50 @@ export default function StudyHistory() {
     const fetchHistory = async () => {
         const userId = localStorage.getItem('userId');
         try {
-            const res = await fetch('http://localhost:5000/api/student/history', {
-                headers: { 'x-user-id': userId },
+            const q = query(
+                collection(db, 'test_results'),
+                where('user_id', '==', userId)
+            );
+            const querySnapshot = await getDocs(q);
+            const rawHistory = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Sort by date desc
+            rawHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+
+            const formattedHistory = rawHistory.map(record => {
+                let details = [];
+                try {
+                    details = typeof record.details === 'string' ? JSON.parse(record.details) : record.details;
+                } catch (e) {
+                    console.error("Failed to parse details JSON", e);
+                }
+
+                const total = details.length;
+                const correct = details.filter(d => d.correct).length;
+                const wrong = total - correct;
+                const percent = total > 0 ? Math.round((correct / total) * 100) : 0;
+
+                return {
+                    date: record.date,
+                    score: record.score,
+                    percent,
+                    total,
+                    correct,
+                    wrong,
+                    details: details.map(d => ({
+                        questionNumber: d.word?.word_number || '?',
+                        questionName: d.word?.english || '?',
+                        questionType: d.word?.korean ? '주관식' : '객관식',
+                        isCorrect: d.correct,
+                        userAnswer: d.userAnswer
+                    }))
+                };
             });
-            const data = await res.json();
-            if (res.ok) {
-                setHistory(data.history || []);
-            } else {
-                alert(data.message || '학습 기록을 불러오지 못했습니다.');
-                navigate('/student');
-            }
+
+            setHistory(formattedHistory);
         } catch (err) {
             console.error(err);
-            alert('서버 연결에 실패했습니다.');
+            alert('학습 기록을 불러오지 못했습니다.');
             navigate('/student');
         }
     };
@@ -48,8 +81,8 @@ export default function StudyHistory() {
                 <p className="text-gray-500">학습 기록이 없습니다.</p>
             ) : (
                 <div className="space-y-8">
-                    {history.map((day) => (
-                        <div key={day.date} className="bg-white rounded-xl shadow-sm p-6">
+                    {history.map((day, index) => (
+                        <div key={index} className="bg-white rounded-xl shadow-sm p-6">
                             <div className="flex items-center justify-between mb-4">
                                 <h2 className="text-xl font-semibold text-gray-800">{formatDate(day.date)}</h2>
                                 <div className="flex items-center space-x-2 text-sm text-gray-600">

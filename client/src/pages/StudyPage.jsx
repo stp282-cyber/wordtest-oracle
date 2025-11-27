@@ -1,11 +1,15 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { BookOpen, ArrowRight, Check } from 'lucide-react';
+import { db } from '../firebase';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function StudyPage() {
     const [loading, setLoading] = useState(true);
     const [words, setWords] = useState([]);
+    const [rangeInfo, setRangeInfo] = useState({ start: 0, end: 0 });
     const navigate = useNavigate();
+    const location = useLocation();
 
     useEffect(() => {
         fetchWords();
@@ -13,33 +17,71 @@ export default function StudyPage() {
 
     const fetchWords = async () => {
         const userId = localStorage.getItem('userId');
-        const studyStartIndex = localStorage.getItem('studyStartIndex');
+
+        // Prioritize location state, then localStorage
+        let studyStartIndex = location.state?.studyStartIndex || localStorage.getItem('studyStartIndex');
+        let studyEndIndex = location.state?.studyEndIndex || localStorage.getItem('studyEndIndex');
 
         try {
-            let url = `http://localhost:5000/api/student/test?userId=${userId}`;
-            if (studyStartIndex) {
-                url += `&startIndex=${studyStartIndex}`;
+            // 1. Get User Settings
+            const userDoc = await getDoc(doc(db, 'users', userId));
+            if (!userDoc.exists()) {
+                alert('사용자 설정을 찾을 수 없습니다.');
+                navigate('/student');
+                return;
+            }
+            const settings = userDoc.data();
+            const bookName = settings.book_name || '기본';
+            const wordsPerSession = settings.words_per_session || 10;
+            const currentWordIndex = settings.current_word_index || 0;
+
+            // 2. Determine Range
+            let startWordNumber;
+            let endWordNumber;
+
+            if (studyStartIndex && studyEndIndex) {
+                startWordNumber = parseInt(studyStartIndex);
+                endWordNumber = parseInt(studyEndIndex);
+            } else if (studyStartIndex) {
+                startWordNumber = parseInt(studyStartIndex);
+                endWordNumber = startWordNumber + wordsPerSession;
+            } else {
+                startWordNumber = currentWordIndex + 1;
+                endWordNumber = startWordNumber + wordsPerSession;
             }
 
-            const res = await fetch(url);
-            const data = await res.json();
-            if (res.ok) {
-                // Only show new words for initial study
-                setWords(data.newWords || []);
-                setLoading(false);
-            } else {
-                alert(data.message || '단어 불러오기 실패');
-                navigate('/student');
-            }
+            setRangeInfo({ start: startWordNumber, end: endWordNumber });
+
+            // 3. Fetch Words (Fetch all for book and filter in JS to avoid index issues)
+            const wordsQuery = query(
+                collection(db, 'words'),
+                where('book_name', '==', bookName)
+            );
+            const querySnapshot = await getDocs(wordsQuery);
+            const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // 4. Filter and Sort
+            const targetWords = allWords
+                .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
+                .sort((a, b) => a.word_number - b.word_number);
+
+            setWords(targetWords);
+            setLoading(false);
+
         } catch (err) {
             console.error(err);
-            alert('서버 연결 실패');
+            alert('데이터 불러오기 실패: ' + err.message);
             navigate('/student');
         }
     };
 
     const handleStartTest = () => {
-        navigate('/student/test');
+        navigate('/student/test', {
+            state: {
+                studyStartIndex: rangeInfo.start,
+                studyEndIndex: rangeInfo.end
+            }
+        });
     };
 
     if (loading) {
@@ -51,7 +93,7 @@ export default function StudyPage() {
             <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
                 <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
                     <h1 className="text-2xl font-bold text-gray-800 mb-4">학습할 단어가 없습니다</h1>
-                    <p className="text-gray-600 mb-6">관리자에게 문의하세요.</p>
+                    <p className="text-gray-600 mb-6">모든 단어를 학습했거나 단어장이 비어있습니다.</p>
                     <button
                         onClick={() => navigate('/student')}
                         className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"

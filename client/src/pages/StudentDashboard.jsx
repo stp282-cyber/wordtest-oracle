@@ -2,6 +2,8 @@ import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay } from 'date-fns';
 import { LogOut, BookOpen, Calendar as CalendarIcon, CheckCircle } from 'lucide-react';
+import { db, auth } from '../firebase';
+import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function StudentDashboard() {
     const [history, setHistory] = useState([]);
@@ -16,28 +18,41 @@ export default function StudentDashboard() {
 
     const fetchDashboard = async () => {
         const userId = localStorage.getItem('userId');
-        try {
-            const res = await fetch('http://localhost:5000/api/student/dashboard', {
-                headers: { 'x-user-id': userId }
-            });
-            const data = await res.json();
-            if (res.ok) {
-                setHistory(data.history);
-                setSettings(data.settings);
+        if (!userId) return;
 
-                const today = new Date();
-                const completedToday = data.history.some(h => {
-                    const historyDate = new Date(h.date);
-                    return isSameDay(historyDate, today);
-                });
-                setTodayCompleted(completedToday);
+        try {
+            // Fetch User Settings
+            const userDoc = await getDoc(doc(db, 'users', userId));
+            if (userDoc.exists()) {
+                setSettings(userDoc.data());
             }
+
+            // Fetch History
+            const historyQuery = query(
+                collection(db, 'test_results'),
+                where('user_id', '==', userId)
+            );
+            const querySnapshot = await getDocs(historyQuery);
+            const historyData = querySnapshot.docs.map(doc => doc.data());
+
+            // Sort by date desc
+            historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setHistory(historyData);
+
+            const today = new Date();
+            const completedToday = historyData.some(h => {
+                const historyDate = new Date(h.date);
+                return isSameDay(historyDate, today);
+            });
+            setTodayCompleted(completedToday);
+
         } catch (err) {
-            console.error(err);
+            console.error("Error fetching dashboard data:", err);
         }
     };
 
     const handleLogout = () => {
+        auth.signOut();
         localStorage.clear();
         navigate('/login');
     };
@@ -60,16 +75,17 @@ export default function StudentDashboard() {
         targetDate.setHours(0, 0, 0, 0);
 
         const wordRange = getWordRangeForDate(date);
+        console.log('handleStartStudy:', { date, today, targetDate, wordRange });
 
-        if (targetDate.getTime() === today.getTime()) {
-            localStorage.removeItem('studyStartIndex');
-            localStorage.removeItem('studyEndIndex');
-        } else if (wordRange) {
+
+        if (wordRange) {
+            console.log('Setting localStorage:', wordRange);
             localStorage.setItem('studyStartIndex', wordRange.start.toString());
             localStorage.setItem('studyEndIndex', wordRange.end.toString());
+            navigate('/student/study', { state: { studyStartIndex: wordRange.start, studyEndIndex: wordRange.end } });
+        } else {
+            navigate('/student/study');
         }
-
-        navigate('/student/study');
     };
 
     const isStudyDay = (date) => {
@@ -88,11 +104,12 @@ export default function StudentDashboard() {
         targetDate.setHours(0, 0, 0, 0);
 
         const currentIndex = settings.current_word_index || 0;
-        const wordsPerSession = settings.words_per_session || 10;
+        const defaultWordsPerSession = settings.words_per_session || 10;
+        const dailyCounts = settings.words_per_day || {};
 
         const todayCompleted = history.some(h => isSameDay(new Date(h.date), today));
 
-        let daysDifference = 0;
+        let accumulatedWords = 0;
 
         if (targetDate < today) {
             const daysInRange = eachDayOfInterval({
@@ -102,31 +119,78 @@ export default function StudentDashboard() {
 
             for (const day of daysInRange) {
                 if (isStudyDay(day) && !history.some(h => isSameDay(new Date(h.date), day))) {
-                    daysDifference--;
+                    const dayOfWeek = getDay(day).toString();
+                    const wordsForThisDay = dailyCounts[dayOfWeek] ? parseInt(dailyCounts[dayOfWeek]) : defaultWordsPerSession;
+                    accumulatedWords -= wordsForThisDay;
                 }
             }
         } else if (targetDate > today) {
             if (!todayCompleted && isStudyDay(today)) {
-                daysDifference = 0;
+                // If today is not completed, we start counting from today (accumulatedWords = 0 initially)
+                // But wait, if targetDate > today, we need to add words for intervening days.
+                // If today is NOT completed, today's words are NOT yet added to currentIndex in DB.
+                // So for tomorrow, we need to add today's words + tomorrow's words?
+                // No, currentIndex is "completed words".
+                // If today is NOT completed, today's range starts at currentIndex + 1.
+                // Tomorrow's range starts at currentIndex + 1 + today's words.
+
+                // So if today is study day and not completed, we add today's words to the offset for future days.
+                const todayOfWeek = getDay(today).toString();
+                const wordsForToday = dailyCounts[todayOfWeek] ? parseInt(dailyCounts[todayOfWeek]) : defaultWordsPerSession;
+                accumulatedWords += wordsForToday;
             }
 
             const daysInRange = eachDayOfInterval({
-                start: todayCompleted ? new Date(today.getTime() + 24 * 60 * 60 * 1000) : today,
+                start: new Date(today.getTime() + 24 * 60 * 60 * 1000), // Start from tomorrow
                 end: targetDate
             });
 
-            for (const day of daysInRange) {
-                if (day > today && isStudyDay(day)) {
-                    daysDifference++;
+            // Iterate up to the day BEFORE targetDate to accumulate offset
+            // Actually, we want the range FOR targetDate.
+            // Start of targetDate = currentIndex + 1 + (words of all previous uncompleted days)
+
+            // If we use the loop above:
+            // If target is tomorrow (Friday). Today (Thursday) is uncompleted.
+            // accumulatedWords = wordsForToday.
+            // Loop starts tomorrow, ends tomorrow.
+            // We shouldn't add tomorrow's words to the START index of tomorrow.
+            // We should add tomorrow's words to the END index.
+
+            // Let's refine the loop. We need to sum up words for all days between Today (exclusive) and TargetDate (exclusive).
+
+            const daysBetween = eachDayOfInterval({
+                start: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+                end: new Date(targetDate.getTime() - 24 * 60 * 60 * 1000) // Up to yesterday relative to target
+            });
+
+            // If target is tomorrow, daysBetween is empty (start > end). Correct.
+
+            if (targetDate > new Date(today.getTime() + 24 * 60 * 60 * 1000)) {
+                // Only loop if there are days in between
+                const interimDays = eachDayOfInterval({
+                    start: new Date(today.getTime() + 24 * 60 * 60 * 1000),
+                    end: new Date(targetDate.getTime() - 24 * 60 * 60 * 1000)
+                });
+
+                for (const day of interimDays) {
+                    if (isStudyDay(day)) {
+                        const dayOfWeek = getDay(day).toString();
+                        const wordsForThisDay = dailyCounts[dayOfWeek] ? parseInt(dailyCounts[dayOfWeek]) : defaultWordsPerSession;
+                        accumulatedWords += wordsForThisDay;
+                    }
                 }
             }
         } else {
-            daysDifference = 0;
+            // Target is today
+            accumulatedWords = 0;
         }
 
+        const targetDayOfWeek = getDay(targetDate).toString();
+        const wordsForTargetDay = dailyCounts[targetDayOfWeek] ? parseInt(dailyCounts[targetDayOfWeek]) : defaultWordsPerSession;
+
         const baseWordNumber = currentIndex + 1;
-        const startWordNumber = baseWordNumber + (daysDifference * wordsPerSession);
-        const endWordNumber = startWordNumber + wordsPerSession;
+        const startWordNumber = baseWordNumber + accumulatedWords;
+        const endWordNumber = startWordNumber + wordsForTargetDay;
 
         return { start: startWordNumber, end: endWordNumber };
     };

@@ -1,43 +1,87 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen } from 'lucide-react';
+import { auth, db } from '../firebase';
+import { signInWithEmailAndPassword } from 'firebase/auth';
+import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export default function Login() {
     const [username, setUsername] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
+    const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+
+    const getEmail = (id) => {
+        return id.includes('@') ? id : `${id}@wordtest.com`;
+    };
 
     const handleLogin = async (e) => {
         e.preventDefault();
         setError('');
+        setLoading(true);
 
         try {
-            const response = await fetch('http://localhost:5000/api/auth/login', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ username, password }),
-            });
+            const email = getEmail(username);
+            const userCredential = await signInWithEmailAndPassword(auth, email, password);
+            const user = userCredential.user;
 
-            const data = await response.json();
+            // Get user data from Firestore
+            const userDoc = await getDoc(doc(db, 'users', user.uid));
 
-            if (response.ok) {
-                localStorage.setItem('token', data.token);
-                localStorage.setItem('role', data.role);
-                localStorage.setItem('username', data.username);
-                localStorage.setItem('name', data.name);
-                localStorage.setItem('userId', JSON.parse(atob(data.token.split('.')[1])).id); // Extract ID from token
+            if (userDoc.exists()) {
+                const userData = userDoc.data();
+                localStorage.setItem('token', await user.getIdToken());
+                localStorage.setItem('role', userData.role);
+                localStorage.setItem('username', userData.username);
+                localStorage.setItem('name', userData.name);
+                localStorage.setItem('userId', user.uid);
 
-                if (data.role === 'admin') {
+                if (userData.role === 'admin') {
                     navigate('/admin');
                 } else {
                     navigate('/student');
                 }
             } else {
-                setError(data.error || '로그인에 실패했습니다.');
+                // Auto-recover: Create missing Firestore document
+                const newUserData = {
+                    username: email,
+                    name: email.split('@')[0],
+                    role: 'student', // Default to student
+                    createdAt: new Date().toISOString(),
+                    current_word_index: 0,
+                    words_per_session: 10,
+                    book_name: '기본',
+                    study_days: '1,2,3,4,5'
+                };
+
+                // Special case for the developer/owner to get admin access if needed
+                if (email.includes('stp282')) {
+                    newUserData.role = 'admin';
+                }
+
+                await setDoc(doc(db, 'users', user.uid), newUserData);
+
+                localStorage.setItem('token', await user.getIdToken());
+                localStorage.setItem('role', newUserData.role);
+                localStorage.setItem('username', newUserData.username);
+                localStorage.setItem('name', newUserData.name);
+                localStorage.setItem('userId', user.uid);
+
+                if (newUserData.role === 'admin') {
+                    navigate('/admin');
+                } else {
+                    navigate('/student');
+                }
             }
         } catch (err) {
-            setError('네트워크 오류가 발생했습니다. 다시 시도해주세요.');
+            console.error(err);
+            if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+                setError('아이디 또는 비밀번호가 올바르지 않습니다.');
+            } else {
+                setError('로그인 중 오류가 발생했습니다: ' + err.message);
+            }
+        } finally {
+            setLoading(false);
         }
     };
 
@@ -45,11 +89,17 @@ export default function Login() {
         <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
             <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow-xl">
                 <div className="flex flex-col items-center">
-                    <div className="p-3 bg-indigo-600 rounded-full">
-                        <BookOpen className="w-8 h-8 text-white" />
-                    </div>
-                    <h1 className="mt-4 text-2xl font-bold text-gray-900">단어 학습장</h1>
-                    <p className="text-gray-500">로그인하여 학습을 시작하세요.</p>
+                    <img
+                        src="/login_image.png"
+                        alt="이스턴영어 공부방"
+                        className="w-64 mb-2 drop-shadow-md hover:scale-105 transition-transform duration-300"
+                    />
+                    <h1 className="text-xl font-bold text-gray-900">
+                        단어 학습장
+                    </h1>
+                    <p className="text-gray-500">
+                        로그인하여 학습을 시작하세요.
+                    </p>
                 </div>
 
                 {error && (
@@ -64,26 +114,31 @@ export default function Login() {
                         <input
                             type="text"
                             required
+                            placeholder="예: student1"
                             className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                             value={username}
                             onChange={(e) => setUsername(e.target.value)}
                         />
                     </div>
+
                     <div>
                         <label className="block text-sm font-medium text-gray-700">비밀번호</label>
                         <input
                             type="password"
                             required
+                            placeholder="비밀번호 입력"
                             className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                             value={password}
                             onChange={(e) => setPassword(e.target.value)}
                         />
                     </div>
+
                     <button
                         type="submit"
-                        className="w-full py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 transition-all font-medium"
+                        disabled={loading}
+                        className="w-full py-2 text-white bg-indigo-600 rounded-lg hover:bg-indigo-700 focus:ring-4 focus:ring-indigo-200 transition-all font-medium flex justify-center items-center"
                     >
-                        로그인
+                        {loading ? '로그인 중...' : '로그인'}
                     </button>
                 </form>
             </div>

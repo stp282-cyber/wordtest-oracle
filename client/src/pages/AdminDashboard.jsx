@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Book, BarChart, BookOpen, UserCog, Filter } from 'lucide-react';
+import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download } from 'lucide-react';
+import { db } from '../firebase';
+import { collection, query, where, getDocs } from 'firebase/firestore';
 
 export default function AdminDashboard() {
     const [students, setStudents] = useState([]);
@@ -20,32 +22,73 @@ export default function AdminDashboard() {
         if (selectedClass === 'all') {
             setFilteredStudents(students);
         } else {
-            setFilteredStudents(students.filter(s => s.class_id == selectedClass));
+            setFilteredStudents(students.filter(s => s.class_id === selectedClass));
         }
     }, [selectedClass, students]);
 
     const fetchStudents = async () => {
-        const res = await fetch('http://localhost:5000/api/admin/students');
-        const data = await res.json();
-        setStudents(data);
-        setFilteredStudents(data);
+        try {
+            const q = query(collection(db, 'users'), where('role', '==', 'student'));
+            const querySnapshot = await getDocs(q);
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setStudents(data);
+            setFilteredStudents(data);
+        } catch (err) {
+            console.error("Error fetching students:", err);
+        }
     };
 
     const fetchClasses = async () => {
         try {
-            const res = await fetch('http://localhost:5000/api/admin/classes');
-            const data = await res.json();
-            if (res.ok) setClasses(data);
+            const querySnapshot = await getDocs(collection(db, 'classes'));
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setClasses(data);
         } catch (err) {
-            console.error(err);
+            console.error("Error fetching classes:", err);
         }
     };
 
     const fetchResults = async (id) => {
-        const res = await fetch(`http://localhost:5000/api/admin/students/${id}/results`);
-        const data = await res.json();
-        setStudentResults(data);
-        setSelectedStudent(id);
+        try {
+            const q = query(collection(db, 'test_results'), where('user_id', '==', id));
+            const querySnapshot = await getDocs(q);
+            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Sort by date desc
+            data.sort((a, b) => new Date(b.date) - new Date(a.date));
+            setStudentResults(data);
+            setSelectedStudent(id);
+        } catch (err) {
+            console.error("Error fetching results:", err);
+        }
+    };
+
+    const handleBackup = async () => {
+        if (!window.confirm('모든 데이터를 백업하시겠습니까?')) return;
+
+        try {
+            const collections = ['users', 'classes', 'words', 'test_results'];
+            const backupData = {};
+
+            for (const colName of collections) {
+                const querySnapshot = await getDocs(collection(db, colName));
+                backupData[colName] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            }
+
+            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = `backup_${new Date().toISOString().split('T')[0]}.json`;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            URL.revokeObjectURL(url);
+
+            alert('백업이 완료되었습니다.');
+        } catch (err) {
+            console.error("Backup failed:", err);
+            alert('백업 중 오류가 발생했습니다.');
+        }
     };
 
     return (
@@ -59,6 +102,13 @@ export default function AdminDashboard() {
                         <h1 className="text-2xl font-bold text-gray-900">선생님 대시보드</h1>
                     </div>
                     <div className="flex items-center space-x-3">
+                        <button
+                            onClick={handleBackup}
+                            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
+                        >
+                            <Download className="w-4 h-4 mr-2" />
+                            <span className="text-sm font-medium">데이터 백업</span>
+                        </button>
                         <button
                             onClick={() => navigate('/admin/students')}
                             className="flex items-center px-4 py-2 bg-white border border-gray-200 rounded-lg hover:bg-gray-50 transition-colors"
@@ -120,7 +170,7 @@ export default function AdminDashboard() {
                                     <div className="flex justify-between items-center">
                                         <span className="font-medium">{student.name || student.username}</span>
                                         <span className="text-xs text-gray-400 bg-gray-100 px-2 py-0.5 rounded-full">
-                                            {student.class_name || '미배정'}
+                                            {classes.find(c => c.id === student.class_id)?.name || '미배정'}
                                         </span>
                                     </div>
                                     <div className="text-xs text-gray-500 mt-1">현재 진도: 단어 {student.current_word_index}번</div>
