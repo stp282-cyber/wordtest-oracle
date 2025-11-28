@@ -8,6 +8,8 @@ export default function StudyPage() {
     const [loading, setLoading] = useState(true);
     const [words, setWords] = useState([]);
     const [rangeInfo, setRangeInfo] = useState({ start: 0, end: 0 });
+    const [bookName, setBookName] = useState('');
+    const [debugInfo, setDebugInfo] = useState(null);
     const navigate = useNavigate();
     const location = useLocation();
 
@@ -21,23 +23,27 @@ export default function StudyPage() {
 
             try {
                 // 1. Get User Settings
-                const userDoc = await getDoc(doc(db, 'users', userId));
+                const userRef = doc(db, 'users', userId);
+                const userDoc = await getDoc(userRef);
+
                 if (!userDoc.exists()) {
                     alert('사용자 설정을 찾을 수 없습니다.');
                     navigate('/student');
                     return;
                 }
-                const settings = userDoc.data();
-                const bookName = location.state?.bookName || settings.book_name || '기본';
 
-                const bookSettings = settings.book_settings?.[bookName] || {};
+                const settings = userDoc.data();
+                const currentBookName = location.state?.bookName || settings.book_name || '기본';
+                setBookName(currentBookName);
+
+                const bookSettings = settings.book_settings?.[currentBookName] || {};
                 const bookWordsPerSession = bookSettings.words_per_session ? parseInt(bookSettings.words_per_session) : null;
                 const wordsPerSession = bookWordsPerSession || settings.words_per_session || 10;
 
                 let currentWordIndex = 0;
-                if (settings.book_progress && settings.book_progress[bookName] !== undefined) {
-                    currentWordIndex = settings.book_progress[bookName];
-                } else if (bookName === settings.book_name) {
+                if (settings.book_progress && settings.book_progress[currentBookName] !== undefined) {
+                    currentWordIndex = settings.book_progress[currentBookName];
+                } else if (currentBookName === settings.book_name) {
                     currentWordIndex = settings.current_word_index || 0;
                 }
 
@@ -61,15 +67,25 @@ export default function StudyPage() {
                 // 3. Fetch Words (Fetch all for book and filter in JS to avoid index issues)
                 const wordsQuery = query(
                     collection(db, 'words'),
-                    where('book_name', '==', bookName)
+                    where('book_name', '==', currentBookName)
                 );
                 const querySnapshot = await getDocs(wordsQuery);
                 const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
+                // Debug Info
+                setDebugInfo({
+                    totalWords: allWords.length,
+                    firstWord: allWords[0] || null,
+                    lastWord: allWords[allWords.length - 1] || null
+                });
+
                 // 4. Filter and Sort
                 const targetWords = allWords
-                    .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
-                    .sort((a, b) => a.word_number - b.word_number);
+                    .filter(w => {
+                        const wn = parseInt(w.word_number);
+                        return !isNaN(wn) && wn >= startWordNumber && wn < endWordNumber;
+                    })
+                    .sort((a, b) => parseInt(a.word_number) - parseInt(b.word_number));
 
                 setWords(targetWords);
                 setLoading(false);
@@ -117,7 +133,21 @@ export default function StudyPage() {
             <div className="min-h-screen bg-gray-50 flex items-center justify-center p-4">
                 <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center">
                     <h1 className="text-2xl font-bold text-gray-800 mb-4">학습할 단어가 없습니다</h1>
-                    <p className="text-gray-600 mb-6">모든 단어를 학습했거나 단어장이 비어있습니다.</p>
+                    <p className="text-gray-600 mb-6">
+                        모든 단어를 학습했거나 단어장이 비어있습니다.<br />
+                        <div className="text-xs text-gray-500 mt-4 text-left bg-gray-100 p-4 rounded overflow-auto max-h-40">
+                            <p><strong>디버깅 정보:</strong></p>
+                            <p>책 이름: {bookName}</p>
+                            <p>요청 범위: {rangeInfo.start} ~ {rangeInfo.end - 1}</p>
+                            {debugInfo && (
+                                <>
+                                    <p>DB 전체 단어 수: {debugInfo.totalWords}</p>
+                                    <p>필터링 전 첫 단어: {JSON.stringify(debugInfo.firstWord)}</p>
+                                    <p>필터링 전 마지막 단어: {JSON.stringify(debugInfo.lastWord)}</p>
+                                </>
+                            )}
+                        </div>
+                    </p>
                     <button
                         onClick={() => navigate('/student')}
                         className="px-6 py-3 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
@@ -152,7 +182,7 @@ export default function StudyPage() {
                         <div className="flex items-center justify-between">
                             <div className="flex items-center space-x-3">
                                 <BookOpen className="w-8 h-8" />
-                                <div>
+                                <div className="flex-1">
                                     <h1 className="text-2xl font-bold">오늘의 기본 학습 단어</h1>
                                     <p className="text-indigo-200 text-sm">총 {words.length}개의 새로운 단어를 학습합니다</p>
                                 </div>
@@ -197,28 +227,52 @@ export default function StudyPage() {
                         {/* Study Complete Button */}
                         <div className="border-t border-gray-200 pt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
                             <button
-                                onClick={() => navigate('/student/game', { state: location.state })}
+                                onClick={() => navigate('/student/game', {
+                                    state: {
+                                        studyStartIndex: rangeInfo.start,
+                                        studyEndIndex: rangeInfo.end,
+                                        bookName
+                                    }
+                                })}
                                 className="py-4 bg-green-500 text-white rounded-xl font-bold text-lg hover:bg-green-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                             >
                                 <span className="text-2xl">🎮</span>
                                 <span className="text-sm md:text-base">카드 뒤집기</span>
                             </button>
                             <button
-                                onClick={() => navigate('/student/scramble', { state: location.state })}
+                                onClick={() => navigate('/student/scramble', {
+                                    state: {
+                                        studyStartIndex: rangeInfo.start,
+                                        studyEndIndex: rangeInfo.end,
+                                        bookName
+                                    }
+                                })}
                                 className="py-4 bg-yellow-500 text-white rounded-xl font-bold text-lg hover:bg-yellow-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                             >
                                 <span className="text-2xl">🧩</span>
                                 <span className="text-sm md:text-base">단어 조합</span>
                             </button>
                             <button
-                                onClick={() => navigate('/student/speed', { state: location.state })}
+                                onClick={() => navigate('/student/speed', {
+                                    state: {
+                                        studyStartIndex: rangeInfo.start,
+                                        studyEndIndex: rangeInfo.end,
+                                        bookName
+                                    }
+                                })}
                                 className="py-4 bg-pink-500 text-white rounded-xl font-bold text-lg hover:bg-pink-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                             >
                                 <span className="text-2xl">⚡</span>
                                 <span className="text-sm md:text-base">스피드 퀴즈</span>
                             </button>
                             <button
-                                onClick={() => navigate('/student/rain', { state: location.state })}
+                                onClick={() => navigate('/student/rain', {
+                                    state: {
+                                        studyStartIndex: rangeInfo.start,
+                                        studyEndIndex: rangeInfo.end,
+                                        bookName
+                                    }
+                                })}
                                 className="py-4 bg-blue-500 text-white rounded-xl font-bold text-lg hover:bg-blue-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                             >
                                 <span className="text-2xl">🌧️</span>

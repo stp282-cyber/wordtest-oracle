@@ -244,9 +244,18 @@ export default function TestInterface() {
         if (isSubmitting.current || allTestsComplete) return;
 
         const currentWord = currentTestWords[currentIndex];
-        // word_typing 모드(testMode === 'new')에서는 영어를 보고 한글을 입력
-        // review 모드에서는 한글을 보고 영어를 입력
-        const correctAnswer = testMode === 'review' ? currentWord.english : currentWord.korean;
+        // 기본 모드(new)에서는 한글 뜻을 보고 영어 단어를 입력
+        // review 모드에서는 영어 단어를 보고 한글 뜻을 입력 (또는 반대일 수 있으나, 사용자가 영어를 입력하고 있으므로 english가 정답이어야 함)
+        // 사용자가 "for short" 등을 입력했으므로 정답은 english여야 함.
+        // 따라서 testMode === 'new' 일 때 english가 정답이어야 함.
+
+        // 이전 코드(오류 발생 전): const correctAnswer = testMode === 'review' ? currentWord.korean : currentWord.english;
+        // 이 코드는 review일 때 한글 정답, new일 때 영어 정답.
+
+        // 사용자가 영어를 입력하고 있으므로, 정답은 english여야 함.
+        // 만약 testMode가 'new'라면 english가 정답이어야 함.
+
+        const correctAnswer = testMode === 'review' ? currentWord.korean : currentWord.english;
 
         const normalizedAnswer = answer.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
         const normalizedCorrect = correctAnswer.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');

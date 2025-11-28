@@ -150,7 +150,7 @@ export default function WordScramble() {
         if (userInput.trim().toLowerCase() === currentWord.english.toLowerCase()) {
             // Correct
             setFeedback('correct');
-            setScore(prev => prev + 10 + (streak * 2));
+            setScore(prev => prev + 50); // 각 문제당 50점
             setStreak(prev => prev + 1);
 
             // Burst confetti
