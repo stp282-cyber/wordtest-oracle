@@ -431,8 +431,21 @@ export default function TestInterface() {
                 const userData = userSnap.data();
                 const currentBookProgress = userData.book_progress || {};
 
-                // Update progress for this book
-                const newProgress = Math.max(currentBookProgress[currentBookName] || 0, rangeEnd);
+                // Get current progress for this book
+                const currentProgress = currentBookProgress[currentBookName] || 0;
+
+                // Only update progress if this range continues from current progress
+                // This prevents skipping ahead
+                let newProgress = currentProgress;
+                if (rangeStart === currentProgress + 1 || currentProgress === 0) {
+                    // Sequential learning: update to rangeEnd
+                    newProgress = rangeEnd;
+                } else if (rangeStart <= currentProgress + 1) {
+                    // Reviewing or continuing: take the max
+                    newProgress = Math.max(currentProgress, rangeEnd);
+                }
+                // If rangeStart > currentProgress + 1, don't update (skipping ahead)
+
                 currentBookProgress[currentBookName] = newProgress;
 
                 const updates = {

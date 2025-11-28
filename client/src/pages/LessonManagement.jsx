@@ -9,6 +9,7 @@ export default function LessonManagement() {
     const [filteredStudents, setFilteredStudents] = useState([]);
     const [classes, setClasses] = useState([]);
     const [books, setBooks] = useState([]);
+    const [bookWordCounts, setBookWordCounts] = useState({}); // { bookName: wordCount }
     const [selectedClass, setSelectedClass] = useState('all');
     const [searchQuery, setSearchQuery] = useState('');
     const [selectedStudents, setSelectedStudents] = useState([]);
@@ -17,6 +18,11 @@ export default function LessonManagement() {
     // Detail View State
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'detail'
     const [editedStudent, setEditedStudent] = useState(null);
+
+    // Curriculum Copy State
+    const [showCopyModal, setShowCopyModal] = useState(false);
+    const [copySourceStudent, setCopySourceStudent] = useState(null);
+    const [copyModalClassFilter, setCopyModalClassFilter] = useState('all');
 
     const navigate = useNavigate();
 
@@ -46,6 +52,16 @@ export default function LessonManagement() {
             const bookData = bookSnap.docs.map(doc => doc.data());
             const uniqueBooks = [...new Set(bookData.map(w => w.book_name).filter(Boolean))];
             setBooks(uniqueBooks);
+
+            // Calculate word counts for each book
+            const wordCounts = {};
+            bookData.forEach(word => {
+                const bookName = word.book_name;
+                if (bookName) {
+                    wordCounts[bookName] = (wordCounts[bookName] || 0) + 1;
+                }
+            });
+            setBookWordCounts(wordCounts);
 
         } catch (err) {
             console.error("Error fetching data:", err);
@@ -91,7 +107,18 @@ export default function LessonManagement() {
     };
 
     const openStudentDetail = (student) => {
-        setEditedStudent(JSON.parse(JSON.stringify(student))); // Deep copy for editing
+        const studentCopy = JSON.parse(JSON.stringify(student)); // Deep copy for editing
+
+        // Convert curriculum_queues object to array (Firestore stores as object)
+        if (studentCopy.curriculum_queues && typeof studentCopy.curriculum_queues === 'object' && !Array.isArray(studentCopy.curriculum_queues)) {
+            const queuesArray = [];
+            Object.keys(studentCopy.curriculum_queues).forEach(key => {
+                queuesArray[parseInt(key)] = studentCopy.curriculum_queues[key] || [];
+            });
+            studentCopy.curriculum_queues = queuesArray;
+        }
+
+        setEditedStudent(studentCopy);
         setViewMode('detail');
     };
 
@@ -99,13 +126,23 @@ export default function LessonManagement() {
         if (!editedStudent) return;
         try {
             const studentRef = doc(db, 'users', editedStudent.id);
+
+            // Convert curriculum_queues array to object (Firestore doesn't support nested arrays)
+            const queuesArray = editedStudent.curriculum_queues || [];
+            const queuesObject = {};
+            queuesArray.forEach((queue, index) => {
+                queuesObject[index] = queue || [];
+            });
+
             await updateDoc(studentRef, {
                 active_books: editedStudent.active_books || [],
-                next_books: editedStudent.next_books || [],
+                curriculum_queues: queuesObject,
                 book_settings: editedStudent.book_settings || {},
+                book_progress: editedStudent.book_progress || {},
                 study_days: editedStudent.study_days || '1,2,3,4,5',
                 // Update legacy fields for compatibility
                 book_name: (editedStudent.active_books && editedStudent.active_books.length > 0) ? editedStudent.active_books[0] : '',
+                current_word_index: editedStudent.book_progress?.[editedStudent.active_books?.[0]] || 0,
             });
             alert('저장되었습니다.');
             fetchData(); // Refresh data
@@ -144,7 +181,13 @@ export default function LessonManagement() {
         setEditedStudent(prev => {
             const newActive = [...(prev.active_books || [])];
             newActive.splice(index, 1);
-            return { ...prev, active_books: newActive };
+
+            const newQueues = [...(prev.curriculum_queues || [])];
+            if (index < newQueues.length) {
+                newQueues.splice(index, 1);
+            }
+
+            return { ...prev, active_books: newActive, curriculum_queues: newQueues };
         });
     };
 
@@ -160,24 +203,52 @@ export default function LessonManagement() {
         });
     };
 
-    const addNextBook = (bookName) => {
-        if (!bookName) return;
+    const addNextBook = (curriculumIndex, nextBookName) => {
+        if (!nextBookName) return;
         setEditedStudent(prev => {
-            const currentNext = prev.next_books || [];
-            // Allow duplicates in queue? Usually no, but let's prevent for now
-            if (currentNext.includes(bookName)) {
-                alert('이미 대기열에 있는 단어장입니다.');
-                return prev;
+            const currentQueues = [...(prev.curriculum_queues || [])];
+            // Ensure queues array is long enough
+            while (currentQueues.length <= curriculumIndex) {
+                currentQueues.push([]);
             }
-            return { ...prev, next_books: [...currentNext, bookName] };
+
+            const targetQueue = currentQueues[curriculumIndex] || [];
+
+            // Store as object with settings for independent test mode configuration
+            const newQueueItem = {
+                title: nextBookName,
+                test_mode: 'word_typing',  // Default test mode
+                words_per_session: 10       // Default words per session
+            };
+
+            currentQueues[curriculumIndex] = [...targetQueue, newQueueItem];
+            return { ...prev, curriculum_queues: currentQueues };
         });
     };
 
-    const removeNextBook = (index) => {
+    const removeNextBook = (curriculumIndex, queueIndex) => {
         setEditedStudent(prev => {
-            const newNext = [...(prev.next_books || [])];
-            newNext.splice(index, 1);
-            return { ...prev, next_books: newNext };
+            const currentQueues = [...(prev.curriculum_queues || [])];
+            if (!currentQueues[curriculumIndex]) return prev;
+
+            const targetQueue = [...currentQueues[curriculumIndex]];
+            targetQueue.splice(queueIndex, 1);
+            currentQueues[curriculumIndex] = targetQueue;
+
+            return { ...prev, curriculum_queues: currentQueues };
+        });
+    };
+
+    const updateQueueItemSetting = (curriculumIndex, queueIndex, field, value) => {
+        setEditedStudent(prev => {
+            // Deep copy the entire curriculum_queues structure
+            const currentQueues = JSON.parse(JSON.stringify(prev.curriculum_queues || []));
+            if (!currentQueues[curriculumIndex] || !currentQueues[curriculumIndex][queueIndex]) return prev;
+
+            // Update the specific item
+            currentQueues[curriculumIndex][queueIndex][field] = value;
+
+            return { ...prev, curriculum_queues: currentQueues };
         });
     };
 
@@ -215,6 +286,54 @@ export default function LessonManagement() {
         } catch (err) {
             console.error("Error deleting curriculum:", err);
             alert('커리큘럼 삭제 중 오류가 발생했습니다.');
+        }
+    };
+
+    const handleCopyCurriculum = async () => {
+        if (!copySourceStudent || selectedStudents.length === 0) {
+            alert('원본 학생과 대상 학생을 선택해주세요.');
+            return;
+        }
+
+        // Prevent copying to the same student
+        const targetStudents = selectedStudents.filter(id => id !== copySourceStudent.id);
+        if (targetStudents.length === 0) {
+            alert('자기 자신에게는 복제할 수 없습니다. 다른 학생을 선택해주세요.');
+            return;
+        }
+
+        if (!confirm(`${copySourceStudent.name}의 커리큘럼을 ${targetStudents.length}명의 학생에게 복제하시겠습니까?`)) return;
+
+        try {
+            const promises = targetStudents.map(async (studentId) => {
+                const studentRef = doc(db, 'users', studentId);
+
+                // Deep copy curriculum data from source student
+                const curriculumData = {
+                    active_books: JSON.parse(JSON.stringify(copySourceStudent.active_books || [])),
+                    curriculum_queues: JSON.parse(JSON.stringify(copySourceStudent.curriculum_queues || {})),
+                    book_settings: JSON.parse(JSON.stringify(copySourceStudent.book_settings || {})),
+                    book_progress: {}, // Reset progress for new students
+                    study_days: copySourceStudent.study_days || '1,2,3,4,5',
+                    words_per_session: copySourceStudent.words_per_session || 10,
+                    // Update legacy fields for compatibility
+                    book_name: (copySourceStudent.active_books && copySourceStudent.active_books.length > 0)
+                        ? copySourceStudent.active_books[0] : '',
+                    current_word_index: 0 // Reset progress
+                };
+
+                await updateDoc(studentRef, curriculumData);
+            });
+
+            await Promise.all(promises);
+            alert('커리큘럼 복제가 완료되었습니다.');
+            fetchData();
+            setShowCopyModal(false);
+            setCopySourceStudent(null);
+            setSelectedStudents([]);
+        } catch (err) {
+            console.error("Error copying curriculum:", err);
+            alert('커리큘럼 복제 중 오류가 발생했습니다.');
         }
     };
 
@@ -266,7 +385,11 @@ export default function LessonManagement() {
                                     }}
                                 >
                                     <option value="">+ 커리큘럼 추가</option>
-                                    {books.map(b => <option key={b} value={b}>{b}</option>)}
+                                    {books.map(b => (
+                                        <option key={b} value={b}>
+                                            {b} (총 {bookWordCounts[b] || 0}개)
+                                        </option>
+                                    ))}
                                 </select>
                             </div>
                         </div>
@@ -289,8 +412,11 @@ export default function LessonManagement() {
                                         <div className="space-y-4">
                                             <div>
                                                 <label className="block text-sm font-bold text-gray-700 mb-1">학습 중인 단어장</label>
-                                                <div className="text-lg font-medium text-gray-900 p-2 bg-white rounded border border-gray-300">
-                                                    {book}
+                                                <div className="text-lg font-medium text-gray-900 p-2 bg-white rounded border border-gray-300 flex items-center justify-between">
+                                                    <span>{book}</span>
+                                                    <span className="text-sm text-gray-500 bg-gray-100 px-2 py-1 rounded">
+                                                        총 {bookWordCounts[book] || 0}개
+                                                    </span>
                                                 </div>
                                             </div>
 
@@ -336,13 +462,15 @@ export default function LessonManagement() {
                                                 </div>
                                             </div>
                                             <div>
-                                                <label className="block text-xs font-bold text-gray-500 mb-1">현재 진행 단어 번호</label>
+                                                <label className="block text-xs font-bold text-gray-500 mb-1">다음 학습할 단어 번호 (시작 번호)</label>
                                                 <input
                                                     type="number"
-                                                    value={editedStudent.book_progress?.[book] || 0}
+                                                    value={(editedStudent.book_progress?.[book] || 0) + 1}
                                                     onChange={(e) => {
+                                                        const val = parseInt(e.target.value);
                                                         const newProgress = { ...(editedStudent.book_progress || {}) };
-                                                        newProgress[book] = parseInt(e.target.value);
+                                                        // 입력한 번호부터 시작하려면, 완료된 번호는 (입력값 - 1)이어야 함
+                                                        newProgress[book] = val > 0 ? val - 1 : 0;
                                                         setEditedStudent({ ...editedStudent, book_progress: newProgress });
                                                     }}
                                                     className="w-full px-3 py-2 bg-white border border-gray-300 rounded outline-none text-sm"
@@ -358,52 +486,66 @@ export default function LessonManagement() {
                                                     className="px-2 py-1 border border-gray-300 rounded text-xs outline-none"
                                                     onChange={(e) => {
                                                         if (e.target.value) {
-                                                            addNextBook(e.target.value);
+                                                            addNextBook(index, e.target.value);
                                                             e.target.value = '';
                                                         }
                                                     }}
                                                 >
                                                     <option value="">+ 대기열 추가</option>
-                                                    {books.map(b => <option key={b} value={b}>{b}</option>)}
+                                                    {books.map(b => (
+                                                        <option key={b} value={b}>
+                                                            {b} (총 {bookWordCounts[b] || 0}개)
+                                                        </option>
+                                                    ))}
                                                 </select>
                                             </div>
 
                                             <div className="space-y-3">
-                                                {(editedStudent.next_books || []).length === 0 ? (
+                                                {((editedStudent.curriculum_queues?.[index]) || []).length === 0 ? (
                                                     <div className="p-4 bg-gray-50 rounded border border-gray-200 text-center text-gray-400 text-sm">
                                                         대기 중인 단어장이 없습니다.
                                                     </div>
                                                 ) : (
-                                                    (editedStudent.next_books || []).map((nextBook, nIdx) => {
-                                                        const nextSettings = editedStudent.book_settings?.[nextBook] || {};
+                                                    ((editedStudent.curriculum_queues?.[index]) || []).map((queueItem, nIdx) => {
+                                                        // Handle both old string format and new object format
+                                                        const isObject = typeof queueItem === 'object' && queueItem.title;
+                                                        const bookTitle = isObject ? queueItem.title : queueItem;
+                                                        const testMode = isObject ? queueItem.test_mode : 'word_typing';
+                                                        const wordsPerSession = isObject ? queueItem.words_per_session : 10;
+
                                                         return (
-                                                            <div key={`${nextBook}-${nIdx}`} className="bg-white p-3 rounded border border-gray-200 relative group">
+                                                            <div key={`${bookTitle}-${nIdx}`} className="bg-white p-3 rounded border border-gray-200 relative group">
                                                                 <button
-                                                                    onClick={() => removeNextBook(nIdx)}
+                                                                    onClick={() => removeNextBook(index, nIdx)}
                                                                     className="absolute top-2 right-2 text-gray-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity"
                                                                 >
                                                                     <X className="w-4 h-4" />
                                                                 </button>
-                                                                <div className="font-medium text-gray-800 mb-2 pr-6">{nIdx + 1}. {nextBook}</div>
+                                                                <div className="font-medium text-gray-800 mb-2 pr-6 flex items-center justify-between">
+                                                                    <span>{nIdx + 1}. {bookTitle}</span>
+                                                                    <span className="text-xs text-gray-500 bg-gray-100 px-2 py-0.5 rounded">
+                                                                        총 {bookWordCounts[bookTitle] || 0}개
+                                                                    </span>
+                                                                </div>
                                                                 <div className="grid grid-cols-2 gap-2">
                                                                     <div>
                                                                         <label className="block text-xs text-gray-500 mb-1">시험 방식</label>
                                                                         <select
-                                                                            value={nextSettings.test_mode || 'word_typing'}
-                                                                            onChange={(e) => updateBookSetting(nextBook, 'test_mode', e.target.value)}
+                                                                            value={testMode}
+                                                                            onChange={(e) => updateQueueItemSetting(index, nIdx, 'test_mode', e.target.value)}
                                                                             className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs outline-none"
                                                                         >
-                                                                            <option value="word_typing">단어</option>
-                                                                            <option value="sentence_click">문장(클릭)</option>
-                                                                            <option value="sentence_type">문장(타자)</option>
+                                                                            <option value="word_typing">단어 시험 (타이핑)</option>
+                                                                            <option value="sentence_click">문장 시험 (클릭 배열)</option>
+                                                                            <option value="sentence_type">문장 시험 (타이핑 배열)</option>
                                                                         </select>
                                                                     </div>
                                                                     <div>
                                                                         <label className="block text-xs text-gray-500 mb-1">단어 수</label>
                                                                         <input
                                                                             type="number"
-                                                                            value={nextSettings.words_per_session || 10}
-                                                                            onChange={(e) => updateBookSetting(nextBook, 'words_per_session', e.target.value)}
+                                                                            value={wordsPerSession}
+                                                                            onChange={(e) => updateQueueItemSetting(index, nIdx, 'words_per_session', parseInt(e.target.value))}
                                                                             className="w-full px-2 py-1 bg-gray-50 border border-gray-200 rounded text-xs outline-none"
                                                                         />
                                                                     </div>
@@ -498,6 +640,13 @@ export default function LessonManagement() {
                         <Trash2 className="w-4 h-4" />
                         커리큘럼 삭제
                     </button>
+                    <button
+                        onClick={() => setShowCopyModal(true)}
+                        className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium text-sm flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4" />
+                        커리큘럼 복제
+                    </button>
                 </div>
 
                 {/* Student List Table */}
@@ -583,6 +732,141 @@ export default function LessonManagement() {
                     </div>
                 </div>
             </div>
+
+            {/* Curriculum Copy Modal */}
+            {showCopyModal && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl max-w-2xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="p-6 border-b border-gray-200">
+                            <div className="flex items-center justify-between">
+                                <h2 className="text-xl font-bold text-gray-900">커리큘럼 복제</h2>
+                                <button
+                                    onClick={() => {
+                                        setShowCopyModal(false);
+                                        setCopySourceStudent(null);
+                                    }}
+                                    className="p-2 hover:bg-gray-100 rounded-full transition-colors"
+                                >
+                                    <X className="w-5 h-5 text-gray-500" />
+                                </button>
+                            </div>
+                        </div>
+
+                        <div className="p-6 space-y-6">
+                            {/* Step 1: Select Source Student */}
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-700 mb-3">1단계: 복제할 커리큘럼의 원본 학생 선택</h3>
+                                <select
+                                    value={copySourceStudent?.id || ''}
+                                    onChange={(e) => {
+                                        const student = students.find(s => s.id === e.target.value);
+                                        setCopySourceStudent(student);
+                                    }}
+                                    className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-green-500 outline-none"
+                                >
+                                    <option value="">원본 학생 선택...</option>
+                                    {students
+                                        .filter(s => s.active_books && s.active_books.length > 0)
+                                        .map(student => (
+                                            <option key={student.id} value={student.id}>
+                                                {student.name} ({student.username}) - {student.active_books?.join(', ')}
+                                            </option>
+                                        ))}
+                                </select>
+                            </div>
+
+                            {/* Display Source Curriculum */}
+                            {copySourceStudent && (
+                                <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                                    <h4 className="text-sm font-semibold text-green-800 mb-2">선택된 커리큘럼</h4>
+                                    <div className="space-y-2 text-sm text-gray-700">
+                                        <div><span className="font-medium">학생:</span> {copySourceStudent.name}</div>
+                                        <div><span className="font-medium">활성 교재:</span> {copySourceStudent.active_books?.join(', ') || '없음'}</div>
+                                        <div><span className="font-medium">학습 요일:</span> {
+                                            (copySourceStudent.study_days || '').split(',').map(d =>
+                                                ['일', '월', '화', '수', '목', '금', '토'][parseInt(d)]
+                                            ).join(', ')
+                                        }</div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* Step 2: Select Target Students */}
+                            <div>
+                                <h3 className="text-sm font-semibold text-gray-700 mb-3">
+                                    2단계: 복제 대상 학생 선택
+                                    <span className="text-indigo-600 ml-2">({selectedStudents.length}명 선택됨)</span>
+                                </h3>
+                                <div className="text-xs text-gray-500 mb-2">
+                                    * 학생 목록에서 체크박스로 선택하거나, 아래에서 직접 선택할 수 있습니다.
+                                </div>
+
+                                {/* Class Filter */}
+                                <div className="mb-3">
+                                    <select
+                                        value={copyModalClassFilter}
+                                        onChange={(e) => setCopyModalClassFilter(e.target.value)}
+                                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
+                                    >
+                                        <option value="all">전체 반</option>
+                                        {classes.map(cls => (
+                                            <option key={cls.id} value={cls.id}>{cls.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="border border-gray-200 rounded-lg max-h-60 overflow-y-auto">
+                                    {students
+                                        .filter(s => copyModalClassFilter === 'all' || s.class_id === copyModalClassFilter)
+                                        .map(student => (
+                                            <label
+                                                key={student.id}
+                                                className={`flex items-center px-4 py-2 hover:bg-gray-50 cursor-pointer border-b border-gray-100 last:border-b-0 ${selectedStudents.includes(student.id) ? 'bg-indigo-50' : ''
+                                                    }`}
+                                            >
+                                                <input
+                                                    type="checkbox"
+                                                    checked={selectedStudents.includes(student.id)}
+                                                    onChange={() => handleSelectStudent(student.id)}
+                                                    className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4 mr-3"
+                                                />
+                                                <div className="flex-1">
+                                                    <div className="font-medium text-sm text-gray-900">{student.name}</div>
+                                                    <div className="text-xs text-gray-500">{student.username}</div>
+                                                </div>
+                                                {student.active_books && student.active_books.length > 0 && (
+                                                    <div className="text-xs text-gray-400">
+                                                        현재: {student.active_books.join(', ')}
+                                                    </div>
+                                                )}
+                                            </label>
+                                        ))}
+                                </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div className="flex gap-3 pt-4">
+                                <button
+                                    onClick={() => {
+                                        setShowCopyModal(false);
+                                        setCopySourceStudent(null);
+                                    }}
+                                    className="flex-1 px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 transition-colors font-medium"
+                                >
+                                    취소
+                                </button>
+                                <button
+                                    onClick={handleCopyCurriculum}
+                                    disabled={!copySourceStudent || selectedStudents.length === 0}
+                                    className="flex-1 px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors font-medium disabled:bg-gray-300 disabled:cursor-not-allowed"
+                                >
+                                    복제 실행
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

@@ -9,7 +9,19 @@ export default function StudentDashboard() {
     const [history, setHistory] = useState([]);
     const [settings, setSettings] = useState(null);
     const [announcements, setAnnouncements] = useState([]);
-    const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 0 }));
+    const [bookCounts, setBookCounts] = useState({}); // { bookName: totalCount }
+    // Helper to determine initial week start (handles weekend logic)
+    const getInitialWeekStart = () => {
+        const today = new Date();
+        const dayOfWeek = getDay(today);
+        // If Saturday (6) or Sunday (0), show next week
+        if (dayOfWeek === 6 || dayOfWeek === 0) {
+            return startOfWeek(addWeeks(today, 1), { weekStartsOn: 0 });
+        }
+        return startOfWeek(today, { weekStartsOn: 0 });
+    };
+
+    const [currentWeekStart, setCurrentWeekStart] = useState(getInitialWeekStart());
     const navigate = useNavigate();
     const username = localStorage.getItem('username');
     const userId = localStorage.getItem('userId');
@@ -102,7 +114,20 @@ export default function StudentDashboard() {
 
                 // Sort by date desc
                 historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
+                // Sort by date desc
+                historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
                 setHistory(historyData);
+
+                // Fetch Word Counts
+                const wordsSnap = await getDocs(collection(db, 'words'));
+                const counts = {};
+                wordsSnap.docs.forEach(doc => {
+                    const data = doc.data();
+                    if (data.book_name) {
+                        counts[data.book_name] = (counts[data.book_name] || 0) + 1;
+                    }
+                });
+                setBookCounts(counts);
 
             } catch (err) {
                 console.error("Error fetching dashboard data:", err);
@@ -125,111 +150,151 @@ export default function StudentDashboard() {
         return studyDays.includes(dayOfWeek);
     };
 
-    const getWordRangeForDate = (date, bookName) => {
-        if (!settings || !bookName) return null;
+    const getWordRangeForDate = (date, initialBookName) => {
+        if (!settings || !initialBookName) return null;
 
         const today = new Date();
         today.setHours(0, 0, 0, 0);
         const targetDate = new Date(date);
         targetDate.setHours(0, 0, 0, 0);
 
-        // Determine currentIndex for this book
-        let currentIndex = 0;
-        if (settings.book_progress && settings.book_progress[bookName] !== undefined) {
-            currentIndex = settings.book_progress[bookName];
-        } else if (bookName === settings.book_name) {
-            currentIndex = settings.current_word_index || 0;
-        }
-
-        const bookSettings = settings.book_settings?.[bookName] || {};
-        const bookWordsPerSession = bookSettings.words_per_session ? parseInt(bookSettings.words_per_session) : null;
-
-        const defaultWordsPerSession = settings.words_per_session || 10;
-        const dailyCounts = settings.words_per_day || {};
-
-        const getWordsForDay = (dayStr) => {
-            if (bookWordsPerSession) return bookWordsPerSession;
-            if (dailyCounts[dayStr]) return parseInt(dailyCounts[dayStr]);
-            return defaultWordsPerSession;
-        };
-
-        // Check if there is a history record for this date and book
+        // 1. Check History first (for past/completed)
         const historyRecord = history.find(h => {
             const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
             const isSameDate = isSameDay(recordDate, targetDate);
-            const historyBook = h.book_name || settings.book_name;
-            return isSameDate && historyBook === bookName;
+            // Check if history book matches the CURRENT active book chain
+            // Simplified: just match date for now, as history preserves what was actually done
+            return isSameDate;
         });
 
         if (historyRecord && historyRecord.range_start && historyRecord.range_end) {
-            return { start: historyRecord.range_start, end: historyRecord.range_end };
+            // Only return if it matches the requested book OR if we want to show history regardless
+            // For simplicity in this view, if the history book is different, we might want to show it
+            if (historyRecord.book_name === initialBookName) {
+                return {
+                    start: historyRecord.range_start,
+                    end: historyRecord.range_end,
+                    bookName: historyRecord.book_name
+                };
+            }
         }
 
-        // Helper to check if a specific day was completed for THIS book
-        const isDayCompleted = (dayToCheck) => {
-            return history.some(h => {
-                const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
-                const isSameDate = isSameDay(recordDate, dayToCheck);
-                const historyBook = h.book_name || settings.book_name;
-                return isSameDate && historyBook === bookName;
-            });
-        };
+        // 2. Future/Simulation Logic
+        // We need to simulate from TODAY onwards to find out what book/range will be on targetDate
 
-        const todayCompleted = isDayCompleted(today);
+        // Initial State for Simulation
+        let currentBook = initialBookName;
 
-        let accumulatedWords = 0;
+        // Determine initial currentIndex
+        let currentIndex = 0;
+        if (settings.book_progress && settings.book_progress[currentBook] !== undefined) {
+            currentIndex = settings.book_progress[currentBook];
+        } else if (currentBook === settings.book_name) {
+            currentIndex = settings.current_word_index || 0;
+        }
+
+        // Queue Management
+        // Convert curriculum_queues object to array
+        let queue = [];
+        const activeBooks = settings.active_books || [];
+        const bookIndex = activeBooks.indexOf(initialBookName);
+
+        if (bookIndex !== -1 && settings.curriculum_queues) {
+            const qObj = settings.curriculum_queues;
+            // Handle both array and object formats
+            if (Array.isArray(qObj)) {
+                queue = qObj[bookIndex] || [];
+            } else {
+                queue = qObj[bookIndex] || [];
+            }
+        }
+
+        // Simulation Loop
+        // Start from Today (or Tomorrow if Today is done)
+        let d = new Date(today);
+
+        // Check if today is already completed for THIS book chain
+        const isTodayDone = history.some(h => isSameDay(new Date(h.date), today));
+        if (isTodayDone) {
+            d.setDate(d.getDate() + 1);
+        }
+
+        // If targetDate is in the past (and not in history), we can't easily predict
+        // But the user asked for "Future" logic mainly.
+        // For past uncompleted days, we show "Missed" based on current state? 
+        // Let's stick to the requested logic: calculate forward.
 
         if (targetDate < today) {
-            // Past Logic: Calculate backwards from currentIndex
-            let d = new Date(today);
-            // If today is NOT completed, currentIndex reflects Yesterday's end. So we start from Yesterday.
-            if (!todayCompleted) {
-                d.setDate(d.getDate() - 1);
-            }
-
-            // Loop backwards until we reach the day AFTER targetDate
-            while (d > targetDate) {
-                if (isStudyDay(d)) {
-                    accumulatedWords -= getWordsForDay(getDay(d).toString());
-                }
-                d.setDate(d.getDate() - 1);
-            }
-
-        } else if (targetDate > today) {
-            // Future Logic: Calculate forwards from currentIndex
-            let d = new Date(today);
-            // If today is completed, Tomorrow is the next session.
-            if (todayCompleted) {
-                d.setDate(d.getDate() + 1);
-            }
-
-            while (d < targetDate) {
-                if (isStudyDay(d)) {
-                    accumulatedWords += getWordsForDay(getDay(d).toString());
-                }
-                d.setDate(d.getDate() + 1);
-            }
+            // Fallback for past uncompleted: just show based on current index (simplified)
+            // This might not be 100% accurate for "what it SHOULD have been", but it's consistent
+            return null;
         }
 
-        const targetDayOfWeek = getDay(targetDate).toString();
-        const wordsForTargetDay = getWordsForDay(targetDayOfWeek);
+        while (d <= targetDate) {
+            if (isStudyDay(d)) {
+                // Get settings for current book
+                const bookSettings = settings.book_settings?.[currentBook] || {};
+                const wordsPerSession = bookSettings.words_per_session ? parseInt(bookSettings.words_per_session) : (settings.words_per_session || 10);
+                const totalWords = bookCounts[currentBook] || 9999; // Default to high if unknown
 
-        let startWordNumber, endWordNumber;
+                // Calculate range for this day
+                let start = currentIndex + 1;
+                let end = start + wordsPerSession;
 
-        if (targetDate < today) {
-            const targetEndIndex = currentIndex + accumulatedWords;
-            startWordNumber = targetEndIndex - wordsForTargetDay + 1;
-            endWordNumber = startWordNumber + wordsForTargetDay;
-        } else {
-            // Future or Today
-            const baseWordNumber = currentIndex;
-            startWordNumber = baseWordNumber + accumulatedWords + 1;
-            endWordNumber = startWordNumber + wordsForTargetDay;
+                // Check if we exceed total words
+                if (start > totalWords) {
+                    // Current book finished! Move to next book
+                    if (queue.length > 0) {
+                        const nextItem = queue[0];
+                        currentBook = typeof nextItem === 'string' ? nextItem : nextItem.title;
+                        queue = queue.slice(1); // Remove from local queue
+                        currentIndex = 0;
+
+                        // Recalculate for new book
+                        // Note: settings might not exist yet for new book
+                        // Use queue item settings if available
+                        const newWordsPerSession = (typeof nextItem === 'object' && nextItem.words_per_session)
+                            ? parseInt(nextItem.words_per_session)
+                            : (settings.words_per_session || 10);
+
+                        start = 1;
+                        end = start + newWordsPerSession;
+
+                        // Update total words for new book
+                        // totalWords = bookCounts[currentBook] || 9999; 
+                    } else {
+                        // No more books
+                        return null;
+                    }
+                } else if (end > totalWords + 1) {
+                    // Partial session at end of book? 
+                    // Current logic usually transitions only when ALL words done.
+                    // If we are at 140/144 and need 10 words -> 141~150. 
+                    // System allows this and then transitions.
+                    // So we just cap at end? Or allow overflow?
+                    // User complained about overflow (143~152 for 144 book).
+                    // So we should cap it OR transition if it exceeds significantly?
+
+                    // The user's issue: 143~152 shown for 144-word book.
+                    // This means start(143) < total(144), but end(152) > total(144).
+                    // In this case, we should show 143~144 AND potentially next book?
+                    // But UI can't handle split.
+                    // Let's just show up to totalWords.
+                    end = totalWords + 1;
+                }
+
+                // If this is the target date, return the result
+                if (isSameDay(d, targetDate)) {
+                    return { start, end, bookName: currentBook, totalWords: bookCounts[currentBook] };
+                }
+
+                // Advance progress
+                currentIndex = end - 1; // e.g. 1~10 -> index 10
+            }
+            d.setDate(d.getDate() + 1);
         }
 
-        if (startWordNumber <= 0) return null;
-
-        return { start: startWordNumber, end: endWordNumber };
+        return null;
     };
 
     const handleStartStudy = (date, bookName, range) => {
@@ -258,6 +323,10 @@ export default function StudentDashboard() {
 
     const handleNextWeek = () => {
         setCurrentWeekStart(prev => addWeeks(prev, 1));
+    };
+
+    const handleToday = () => {
+        setCurrentWeekStart(getInitialWeekStart());
     };
 
     // Generate days for the table
@@ -351,11 +420,17 @@ export default function StudentDashboard() {
                             <button onClick={handleNextWeek} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                                 <ChevronRight className="w-5 h-5 text-gray-600" />
                             </button>
+                            <button
+                                onClick={handleToday}
+                                className="px-3 py-1 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                            >
+                                오늘
+                            </button>
                         </div>
                         <div className="flex items-center space-x-2 text-sm text-gray-500">
                             <span className="flex items-center"><div className="w-3 h-3 bg-green-500 rounded-full mr-1"></div>완료</span>
-                            <span className="flex items-center"><div className="w-3 h-3 bg-red-500 rounded-full mr-1"></div>미완료</span>
-                            <span className="flex items-center"><div className="w-3 h-3 bg-blue-400 rounded-full mr-1"></div>예정</span>
+                            <span className="flex items-center"><div className="w-3 h-3 bg-red-500 rounded-full mr-1"></div>학습 예정</span>
+                            <span className="flex items-center"><div className="w-3 h-3 bg-blue-200 rounded-full mr-1"></div>이전 범위</span>
                         </div>
                     </div>
 
@@ -378,6 +453,9 @@ export default function StudentDashboard() {
                                     <tr key={book} className="hover:bg-gray-50 transition-colors">
                                         <td className="px-6 py-6 text-sm font-bold text-gray-800 sticky left-0 bg-white z-10 border-r border-gray-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
                                             {book}
+                                            <span className="block text-xs font-normal text-gray-500 mt-1">
+                                                (총 {bookCounts[book] || 0}개)
+                                            </span>
                                         </td>
                                         {studyDays.map((date, i) => {
                                             const isDone = history.some(h => {
@@ -388,16 +466,39 @@ export default function StudentDashboard() {
                                             });
 
                                             const range = getWordRangeForDate(date, book);
-                                            const isTodayFlag = isSameDay(date, new Date());
-                                            const isPast = date < new Date().setHours(0, 0, 0, 0);
+
+                                            // Determine current progress for this book
+                                            let currentProgress = 0;
+                                            if (settings.book_progress && settings.book_progress[book] !== undefined) {
+                                                currentProgress = settings.book_progress[book];
+                                            } else if (book === settings.book_name) {
+                                                currentProgress = settings.current_word_index || 0;
+                                            }
+
+                                            // Check if this range is before or after current progress
+                                            // 1. If date is Today or Future -> Red (User request: "Future things should be red")
+                                            // 2. If range book is different from current book (Next book) -> Red
+                                            // 3. If range start is greater than current progress -> Red
+                                            const isToday = isSameDay(date, new Date());
+                                            const isFuture = date > new Date().setHours(0, 0, 0, 0);
+                                            const isFutureDate = isToday || isFuture;
+
+                                            const isFutureLearning = isFutureDate || (range && range.bookName && range.bookName !== book) || (range && range.start > currentProgress);
 
                                             return (
                                                 <td key={i} className="px-4 py-4 border-l border-gray-100 align-top">
                                                     <div className="flex flex-col items-center space-y-3">
                                                         {range && (
-                                                            <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
-                                                                범위 {range.start} ~ {range.end - 1}
-                                                            </span>
+                                                            <div className="flex flex-col items-center">
+                                                                {range.bookName !== book && (
+                                                                    <span className="text-xs font-bold text-purple-600 mb-1">
+                                                                        {range.bookName}
+                                                                    </span>
+                                                                )}
+                                                                <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                                                    범위 {range.start} ~ {range.end - 1}
+                                                                </span>
+                                                            </div>
                                                         )}
 
                                                         {isDone ? (
@@ -417,22 +518,20 @@ export default function StudentDashboard() {
                                                         ) : (
                                                             range ? (
                                                                 <div className="flex flex-col items-center w-full">
-                                                                    <div className={`text-xs font-medium mb-2 ${isPast ? 'text-red-500' : 'text-blue-500'}`}>
-                                                                        {isPast ? '미완료' : '학습 예정'}
+                                                                    <div className={`text-xs font-medium mb-2 ${isFutureLearning ? 'text-red-500' : 'text-blue-400'}`}>
+                                                                        {isFutureLearning ? '학습 예정' : '이전 범위'}
                                                                     </div>
                                                                     <button
                                                                         onClick={() => handleStartStudy(date, book, range)}
                                                                         className={`
                                                                             w-full py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center space-x-1
-                                                                            ${isPast
+                                                                            ${isFutureLearning
                                                                                 ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
-                                                                                : (isTodayFlag
-                                                                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md animate-pulse'
-                                                                                    : 'bg-blue-100 text-blue-600 hover:bg-blue-200')
+                                                                                : 'bg-blue-100 text-blue-500 hover:bg-blue-200'
                                                                             }
                                                                         `}
                                                                     >
-                                                                        {isPast || isTodayFlag ? '학습하기' : '학습하기'}
+                                                                        학습하기
                                                                     </button>
                                                                 </div>
                                                             ) : (

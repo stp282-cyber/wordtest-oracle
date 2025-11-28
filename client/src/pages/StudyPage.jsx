@@ -1,8 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { BookOpen, ArrowRight, Check } from 'lucide-react';
+import { BookOpen, Check } from 'lucide-react';
 import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 
 export default function StudyPage() {
     const [loading, setLoading] = useState(true);
@@ -123,6 +123,146 @@ export default function StudyPage() {
             }
         });
     };
+
+    // Auto-transition to next book only when ALL words are completed
+    useEffect(() => {
+        let isCancelled = false;
+
+        const checkAutoTransition = async () => {
+            if (loading) return; // Wait for loading to complete
+
+            // Only check for auto-transition when there are no words in the current range
+            // AND we have debug info showing the book has words
+            if (words.length === 0 && debugInfo && debugInfo.totalWords > 0) {
+                const userId = localStorage.getItem('userId');
+                if (!userId) return;
+
+                try {
+                    const userRef = doc(db, 'users', userId);
+                    const userDoc = await getDoc(userRef);
+
+                    if (isCancelled) return;
+
+                    if (userDoc.exists()) {
+                        const userData = userDoc.data();
+
+                        // Get current progress for this book
+                        let currentWordIndex = 0;
+                        if (userData.book_progress && userData.book_progress[bookName] !== undefined) {
+                            currentWordIndex = userData.book_progress[bookName];
+                        } else if (bookName === userData.book_name) {
+                            currentWordIndex = userData.current_word_index || 0;
+                        }
+
+                        // CRITICAL: Check if the requested range is sequential
+                        // If student clicked on a future date (skipping ahead), don't auto-transition
+                        if (rangeInfo.start > currentWordIndex + 1) {
+                            console.log(`Skipping ahead detected. Range start: ${rangeInfo.start}, Current progress: ${currentWordIndex}`);
+                            alert('순차적으로 학습해야 합니다.\n현재 진행 중인 단어부터 학습해주세요.');
+                            navigate('/student');
+                            return;
+                        }
+
+                        // Get the maximum word_number in this book
+                        const maxWordNumber = debugInfo.lastWord ? parseInt(debugInfo.lastWord.word_number) : 0;
+
+                        // Only transition if current progress is beyond the last word
+                        // This ensures ALL words are completed before transitioning
+                        if (currentWordIndex < maxWordNumber) {
+                            // Still have words to study, don't auto-transition
+                            console.log(`Still have words to study. Current: ${currentWordIndex}, Max: ${maxWordNumber}`);
+                            return;
+                        }
+
+                        // Changed: Get queue from curriculum_queues based on active_books index
+                        const activeBooks = userData.active_books || [];
+                        const bookIndex = activeBooks.findIndex(b => b === bookName);
+
+                        // Convert curriculum_queues object to array (Firestore stores as object)
+                        let curriculumQueuesArray = [];
+                        const curriculumQueuesObj = userData.curriculum_queues || {};
+                        if (typeof curriculumQueuesObj === 'object' && !Array.isArray(curriculumQueuesObj)) {
+                            Object.keys(curriculumQueuesObj).forEach(key => {
+                                curriculumQueuesArray[parseInt(key)] = curriculumQueuesObj[key] || [];
+                            });
+                        } else {
+                            curriculumQueuesArray = curriculumQueuesObj;
+                        }
+
+                        const nextBooks = (bookIndex !== -1 && curriculumQueuesArray[bookIndex]) ? curriculumQueuesArray[bookIndex] : [];
+
+                        if (nextBooks.length > 0) {
+                            const nextBookItem = nextBooks[0];
+                            const nextBookName = typeof nextBookItem === 'string' ? nextBookItem : nextBookItem.title;
+
+                            if (!nextBookName) return;
+
+                            // Use setTimeout to avoid blocking rendering and React state updates
+                            setTimeout(async () => {
+                                const confirmTransition = window.confirm(
+                                    `'${bookName}' 단어장의 모든 학습이 완료되었습니다.\n다음 교재 '${nextBookName}'(으)로 이동하시겠습니까?`
+                                );
+
+                                if (confirmTransition) {
+                                    const newActiveBooks = [...activeBooks];
+                                    // Replace the completed book with the next one at the same index
+                                    if (bookIndex !== -1) {
+                                        newActiveBooks[bookIndex] = nextBookName;
+                                    }
+
+                                    const newQueuesArray = [...curriculumQueuesArray];
+                                    // Update the queue for this curriculum slot
+                                    if (bookIndex !== -1) {
+                                        newQueuesArray[bookIndex] = nextBooks.slice(1);
+                                    }
+
+                                    // Convert array to object for Firestore (no nested arrays)
+                                    const newQueuesObject = {};
+                                    newQueuesArray.forEach((queue, index) => {
+                                        newQueuesObject[index] = queue || [];
+                                    });
+
+                                    const updates = {
+                                        active_books: newActiveBooks,
+                                        curriculum_queues: newQueuesObject,
+                                        [`book_progress.${nextBookName}`]: 0
+                                    };
+
+                                    // Apply queue item settings to book_settings if it's an object
+                                    if (typeof nextBookItem === 'object' && nextBookItem.test_mode) {
+                                        updates[`book_settings.${nextBookName}.test_mode`] = nextBookItem.test_mode;
+                                    }
+                                    if (typeof nextBookItem === 'object' && nextBookItem.words_per_session) {
+                                        updates[`book_settings.${nextBookName}.words_per_session`] = nextBookItem.words_per_session;
+                                    }
+
+                                    // If this was the primary book, update primary book fields
+                                    if (userData.book_name === bookName) {
+                                        updates.book_name = nextBookName;
+                                        updates.current_word_index = 0;
+                                    }
+
+                                    await updateDoc(userRef, updates);
+                                    alert('교재가 변경되었습니다. 학습을 시작합니다.');
+                                    window.location.reload();
+                                } else {
+                                    navigate('/student');
+                                }
+                            }, 100);
+                        }
+                    }
+                } catch (err) {
+                    console.error("Error auto-transitioning:", err);
+                }
+            }
+        };
+
+        checkAutoTransition();
+
+        return () => {
+            isCancelled = true;
+        };
+    }, [loading, words.length, debugInfo, bookName, navigate, rangeInfo]);
 
     if (loading) {
         return <div className="p-8 text-center">단어 불러오는 중...</div>;
