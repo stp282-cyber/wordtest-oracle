@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trophy, Check, HelpCircle } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trophy, Check, HelpCircle, DollarSign } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
+import { addDollars, getRewardSettings, getDailyGameEarnings } from '../utils/dollarUtils';
 
 export default function WordScramble() {
     const [loading, setLoading] = useState(true);
@@ -16,6 +17,7 @@ export default function WordScramble() {
     const [streak, setStreak] = useState(0);
     const [gameComplete, setGameComplete] = useState(false);
     const [showHint, setShowHint] = useState(false);
+    const [earnedDollars, setEarnedDollars] = useState(0);
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -68,22 +70,6 @@ export default function WordScramble() {
         initializeGame();
     }, [location.state, navigate]);
 
-    // Set up current word
-    useEffect(() => {
-        if (words.length > 0 && currentIndex < words.length) {
-            const word = words[currentIndex].english;
-            setScrambled(shuffleWord(word));
-            setUserInput('');
-            setFeedback(null);
-            setShowHint(false);
-            // Focus input
-            setTimeout(() => inputRef.current?.focus(), 100);
-        } else if (words.length > 0 && currentIndex >= words.length) {
-            setGameComplete(true);
-            triggerWinConfetti();
-        }
-    }, [currentIndex, words]);
-
     const shuffleWord = (word) => {
         const arr = word.split('');
         let shuffled = arr.slice();
@@ -97,6 +83,64 @@ export default function WordScramble() {
         }
         return shuffled.join('');
     };
+
+    const triggerWinConfetti = () => {
+        const duration = 3000;
+        const animationEnd = Date.now() + duration;
+        const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+        const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+        const interval = setInterval(function () {
+            const timeLeft = animationEnd - Date.now();
+            if (timeLeft <= 0) return clearInterval(interval);
+            const particleCount = 50 * (timeLeft / duration);
+            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+        }, 250);
+    };
+
+    // Set up current word
+    useEffect(() => {
+        if (words.length > 0 && currentIndex < words.length) {
+            const word = words[currentIndex].english;
+            setTimeout(() => {
+                setScrambled(shuffleWord(word));
+                setUserInput('');
+                setFeedback(null);
+                setShowHint(false);
+            }, 0);
+            // Focus input
+            setTimeout(() => inputRef.current?.focus(), 100);
+        } else if (words.length > 0 && currentIndex >= words.length) {
+            setTimeout(() => {
+                setGameComplete(true);
+                triggerWinConfetti();
+            }, 0);
+        }
+    }, [currentIndex, words]);
+
+    // Handle Game Completion Reward
+    useEffect(() => {
+        const handleReward = async () => {
+            if (gameComplete) {
+                const settings = await getRewardSettings();
+                if (score >= settings.game_high_score_threshold) {
+                    const userId = localStorage.getItem('userId');
+                    const dailyEarnings = await getDailyGameEarnings(userId);
+                    const remainingLimit = (settings.game_daily_max_reward || 0.5) - dailyEarnings;
+
+                    if (remainingLimit > 0) {
+                        const rewardAmount = Math.min(settings.game_high_score_reward, remainingLimit);
+                        if (rewardAmount > 0) {
+                            await addDollars(userId, rewardAmount, `단어 맞추기 게임 고득점 (${score}점)`, 'game_reward');
+                            setEarnedDollars(rewardAmount);
+                        }
+                    }
+                }
+            }
+        };
+        handleReward();
+    }, [gameComplete, score]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -132,21 +176,6 @@ export default function WordScramble() {
         }
     };
 
-    const triggerWinConfetti = () => {
-        const duration = 3000;
-        const animationEnd = Date.now() + duration;
-        const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
-        const randomInRange = (min, max) => Math.random() * (max - min) + min;
-
-        const interval = setInterval(function () {
-            const timeLeft = animationEnd - Date.now();
-            if (timeLeft <= 0) return clearInterval(interval);
-            const particleCount = 50 * (timeLeft / duration);
-            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
-            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
-        }, 250);
-    };
-
     const handleRestart = () => {
         const newWords = [...words];
         for (let i = newWords.length - 1; i > 0; i--) {
@@ -158,6 +187,7 @@ export default function WordScramble() {
         setScore(0);
         setStreak(0);
         setGameComplete(false);
+        setEarnedDollars(0);
     };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-indigo-900 text-white">로딩 중...</div>;
@@ -290,6 +320,16 @@ export default function WordScramble() {
                             모든 단어를 정복했습니다!<br />
                             최종 점수: <span className="text-yellow-400 font-bold text-2xl">{score}점</span>
                         </p>
+
+                        {earnedDollars > 0 && (
+                            <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-4 mb-6 animate-pulse">
+                                <p className="text-green-300 font-bold mb-1">획득한 보상</p>
+                                <div className="flex items-center justify-center text-3xl font-bold text-green-400">
+                                    <DollarSign className="w-8 h-8 mr-1" />
+                                    {earnedDollars.toFixed(2)}
+                                </div>
+                            </div>
+                        )}
 
                         <div className="space-y-3 max-w-xs mx-auto">
                             <button

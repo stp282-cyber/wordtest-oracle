@@ -1,19 +1,27 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, Trash2, Plus, BookOpen } from 'lucide-react';
+import { Upload, Trash2, Plus, BookOpen, Edit2, Save, X, AlertTriangle } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
-import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch, updateDoc, query, where } from 'firebase/firestore';
 
 export default function WordManagement() {
     const [words, setWords] = useState([]);
     const [newWord, setNewWord] = useState({ book_name: '기본', word_number: '', english: '', korean: '' });
     const [filterBookName, setFilterBookName] = useState('전체');
+    const [editingWord, setEditingWord] = useState(null);
+
     const fetchWords = useCallback(async () => {
         try {
             const querySnapshot = await getDocs(collection(db, 'words'));
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Sort by word_number if available
-            data.sort((a, b) => (a.word_number || 0) - (b.word_number || 0));
+            // Sort by book_name first, then word_number
+            data.sort((a, b) => {
+                const bookA = (a.book_name || '').toString();
+                const bookB = (b.book_name || '').toString();
+                if (bookA < bookB) return -1;
+                if (bookA > bookB) return 1;
+                return (a.word_number || 0) - (b.word_number || 0);
+            });
             setWords(data);
         } catch (err) {
             console.error("Error fetching words:", err);
@@ -108,6 +116,51 @@ export default function WordManagement() {
         }
     };
 
+    const handleUpdateWord = async () => {
+        if (!editingWord) return;
+        try {
+            const wordRef = doc(db, 'words', editingWord.id);
+            await updateDoc(wordRef, {
+                book_name: editingWord.book_name,
+                word_number: editingWord.word_number ? parseInt(editingWord.word_number) : null,
+                english: editingWord.english,
+                korean: editingWord.korean
+            });
+            setEditingWord(null);
+            fetchWords();
+        } catch (err) {
+            console.error("Error updating word:", err);
+            alert("수정 실패");
+        }
+    };
+
+    const handleDeleteBook = async () => {
+        if (filterBookName === '전체') {
+            alert('삭제할 단어장을 선택해주세요.');
+            return;
+        }
+
+        if (!confirm(`'${filterBookName}' 단어장의 모든 단어를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.`)) return;
+
+        try {
+            const q = query(collection(db, 'words'), where('book_name', '==', filterBookName));
+            const snapshot = await getDocs(q);
+
+            const batch = writeBatch(db);
+            snapshot.docs.forEach(doc => {
+                batch.delete(doc.ref);
+            });
+
+            await batch.commit();
+            alert(`'${filterBookName}' 단어장이 삭제되었습니다.`);
+            setFilterBookName('전체');
+            fetchWords();
+        } catch (err) {
+            console.error("Error deleting book:", err);
+            alert("단어장 삭제 실패");
+        }
+    };
+
     const downloadTemplate = () => {
         const template = [
             { 단어장명: '기본', 번호: 1, 영단어: 'apple', 뜻: '사과' },
@@ -172,11 +225,22 @@ export default function WordManagement() {
                 <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="text-lg font-semibold">등록된 단어 ({filteredWords.length}개)</h2>
-                        <select value={filterBookName} onChange={(e) => setFilterBookName(e.target.value)} className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
-                            {bookNames.map(name => (
-                                <option key={name} value={name}>{name}</option>
-                            ))}
-                        </select>
+                        <div className="flex gap-2">
+                            {filterBookName !== '전체' && (
+                                <button
+                                    onClick={handleDeleteBook}
+                                    className="px-4 py-2 bg-red-100 text-red-600 rounded-lg hover:bg-red-200 transition-colors flex items-center gap-2 text-sm font-bold"
+                                >
+                                    <AlertTriangle className="w-4 h-4" />
+                                    '{filterBookName}' 단어장 전체 삭제
+                                </button>
+                            )}
+                            <select value={filterBookName} onChange={(e) => setFilterBookName(e.target.value)} className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none">
+                                {bookNames.map(name => (
+                                    <option key={name} value={name}>{name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                     <div className="overflow-x-auto">
                         <table className="w-full text-left text-sm">
@@ -186,21 +250,71 @@ export default function WordManagement() {
                                     <th className="pb-3 font-medium w-20">번호</th>
                                     <th className="pb-3 font-medium">영단어</th>
                                     <th className="pb-3 font-medium">뜻</th>
-                                    <th className="pb-3 font-medium w-24">작업</th>
+                                    <th className="pb-3 font-medium w-32 text-center">작업</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-gray-50">
                                 {filteredWords.map((word) => (
-                                    <tr key={word.id}>
-                                        <td className="py-3 text-gray-600">{word.book_name || '기본'}</td>
-                                        <td className="py-3 text-gray-500">{word.word_number || '-'}</td>
-                                        <td className="py-3 font-medium text-gray-900">{word.english}</td>
-                                        <td className="py-3 text-gray-600">{word.korean}</td>
-                                        <td className="py-3">
-                                            <button onClick={() => handleDeleteWord(word.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
-                                                <Trash2 className="w-4 h-4" />
-                                            </button>
-                                        </td>
+                                    <tr key={word.id} className="hover:bg-gray-50">
+                                        {editingWord && editingWord.id === word.id ? (
+                                            <>
+                                                <td className="py-2">
+                                                    <input
+                                                        type="text"
+                                                        value={editingWord.book_name}
+                                                        onChange={(e) => setEditingWord({ ...editingWord, book_name: e.target.value })}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="py-2">
+                                                    <input
+                                                        type="number"
+                                                        value={editingWord.word_number || ''}
+                                                        onChange={(e) => setEditingWord({ ...editingWord, word_number: e.target.value })}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="py-2">
+                                                    <input
+                                                        type="text"
+                                                        value={editingWord.english}
+                                                        onChange={(e) => setEditingWord({ ...editingWord, english: e.target.value })}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="py-2">
+                                                    <input
+                                                        type="text"
+                                                        value={editingWord.korean}
+                                                        onChange={(e) => setEditingWord({ ...editingWord, korean: e.target.value })}
+                                                        className="w-full px-2 py-1 border rounded"
+                                                    />
+                                                </td>
+                                                <td className="py-2 flex justify-center gap-2">
+                                                    <button onClick={handleUpdateWord} className="p-1.5 text-green-600 hover:bg-green-50 rounded">
+                                                        <Save className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => setEditingWord(null)} className="p-1.5 text-gray-500 hover:bg-gray-100 rounded">
+                                                        <X className="w-4 h-4" />
+                                                    </button>
+                                                </td>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <td className="py-3 text-gray-600">{word.book_name || '기본'}</td>
+                                                <td className="py-3 text-gray-500">{word.word_number || '-'}</td>
+                                                <td className="py-3 font-medium text-gray-900">{word.english}</td>
+                                                <td className="py-3 text-gray-600">{word.korean}</td>
+                                                <td className="py-3 flex justify-center gap-2">
+                                                    <button onClick={() => setEditingWord(word)} className="p-2 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
+                                                        <Edit2 className="w-4 h-4" />
+                                                    </button>
+                                                    <button onClick={() => handleDeleteWord(word.id)} className="p-2 text-red-500 hover:bg-red-50 rounded-lg transition-colors">
+                                                        <Trash2 className="w-4 h-4" />
+                                                    </button>
+                                                </td>
+                                            </>
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>

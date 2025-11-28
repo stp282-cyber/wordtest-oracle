@@ -1,9 +1,10 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, Heart, Trophy, Zap, Bomb, RefreshCw } from 'lucide-react';
+import { ArrowLeft, Heart, Trophy, Zap, Bomb, RefreshCw, DollarSign } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
+import { addDollars, getRewardSettings, getDailyGameEarnings } from '../utils/dollarUtils';
 
 export default function WordRain() {
     const [loading, setLoading] = useState(true);
@@ -14,6 +15,7 @@ export default function WordRain() {
     const [lives, setLives] = useState(5);
     const [level, setLevel] = useState(1);
     const [gameState, setGameState] = useState('loading'); // loading, playing, gameover
+    const [earnedDollars, setEarnedDollars] = useState(0);
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -24,7 +26,6 @@ export default function WordRain() {
     const gameAreaRef = useRef(null);
     const inputRef = useRef(null);
 
-    // Game Constants
     // Game Constants
     const SPAWN_RATE = 3000; // ms (slower spawn rate)
     const FALL_SPEED = 0.015; // Extremely slow speed
@@ -71,6 +72,50 @@ export default function WordRain() {
 
         initializeGame();
     }, [location.state, navigate]);
+
+    // Handle Game Over Logic
+    useEffect(() => {
+        const handleGameOver = async () => {
+            if (gameState === 'gameover') {
+                const settings = await getRewardSettings();
+                if (score >= settings.game_high_score_threshold) {
+                    const userId = localStorage.getItem('userId');
+                    const dailyEarnings = await getDailyGameEarnings(userId);
+                    const remainingLimit = (settings.game_daily_max_reward || 0.5) - dailyEarnings;
+
+                    if (remainingLimit > 0) {
+                        const rewardAmount = Math.min(settings.game_high_score_reward, remainingLimit);
+                        if (rewardAmount > 0) {
+                            await addDollars(userId, rewardAmount, `단어 비 게임 고득점 (${score}점)`, 'game_reward');
+                            setEarnedDollars(rewardAmount);
+                        }
+                    }
+                }
+            }
+        };
+
+        handleGameOver();
+    }, [gameState, score]);
+
+    const spawnWord = useCallback(() => {
+        if (words.length === 0) return;
+
+        const randomWord = words[Math.floor(Math.random() * words.length)];
+        const id = Date.now() + Math.random();
+        const x = Math.random() * 70 + 15; // 15% to 85% width
+
+        setFallingWords(prev => [
+            ...prev,
+            {
+                id,
+                word: randomWord.english,
+                meaning: randomWord.korean,
+                x,
+                y: 15, // Start below header
+                speed: FALL_SPEED + Math.random() * 0.2
+            }
+        ]);
+    }, [words]);
 
     // Game Loop
     const updateGame = useCallback((time) => {
@@ -129,7 +174,7 @@ export default function WordRain() {
         }
 
         requestRef.current = requestAnimationFrame(updateGame);
-    }, [gameState, level, words]);
+    }, [gameState, level, spawnWord]);
 
     useEffect(() => {
         if (gameState === 'playing' && words.length > 0) {
@@ -138,26 +183,6 @@ export default function WordRain() {
         }
         return () => cancelAnimationFrame(requestRef.current);
     }, [gameState, updateGame, words]);
-
-    const spawnWord = () => {
-        if (words.length === 0) return;
-
-        const randomWord = words[Math.floor(Math.random() * words.length)];
-        const id = Date.now() + Math.random();
-        const x = Math.random() * 70 + 15; // 15% to 85% width
-
-        setFallingWords(prev => [
-            ...prev,
-            {
-                id,
-                word: randomWord.english,
-                meaning: randomWord.korean,
-                x,
-                y: 15, // Start below header
-                speed: FALL_SPEED + Math.random() * 0.2
-            }
-        ]);
-    };
 
     const checkAnswer = (value) => {
         const trimmedValue = value.toLowerCase().trim();
@@ -222,6 +247,7 @@ export default function WordRain() {
         setLevel(1);
         setUserInput('');
         setGameState('playing');
+        setEarnedDollars(0);
         lastSpawnTimeRef.current = 0;
     };
 
@@ -336,9 +362,19 @@ export default function WordRain() {
                     <div className="bg-gray-800 border border-gray-700 p-8 rounded-3xl text-center max-w-sm w-full shadow-2xl transform scale-100 animate-bounce-in">
                         <Trophy className="w-20 h-20 text-yellow-400 mx-auto mb-6 animate-bounce" />
                         <h2 className="text-3xl font-bold text-white mb-2">게임 종료</h2>
-                        <p className="text-gray-400 mb-8">
+                        <p className="text-gray-400 mb-4">
                             최종 점수: <span className="text-yellow-400 font-bold text-2xl">{score}</span>
                         </p>
+
+                        {earnedDollars > 0 && (
+                            <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-4 mb-6 animate-pulse">
+                                <p className="text-green-300 font-bold mb-1">획득한 보상</p>
+                                <div className="flex items-center justify-center text-3xl font-bold text-green-400">
+                                    <DollarSign className="w-8 h-8 mr-1" />
+                                    {earnedDollars.toFixed(2)}
+                                </div>
+                            </div>
+                        )}
 
                         <div className="space-y-3">
                             <button

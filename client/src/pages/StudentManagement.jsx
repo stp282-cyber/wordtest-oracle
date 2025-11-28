@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { UserPlus, Users, Calendar, X } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, getDocs, updateDoc, deleteDoc, doc, setDoc, query, where } from 'firebase/firestore';
@@ -17,23 +18,13 @@ const firebaseConfig = {
 };
 
 export default function StudentManagement() {
+    const navigate = useNavigate();
     const [students, setStudents] = useState([]);
-    const [books, setBooks] = useState([]);
     const [classes, setClasses] = useState([]);
     const [newStudent, setNewStudent] = useState({ username: '', password: '', name: '' });
     const [editingStudent, setEditingStudent] = useState(null);
     const [showAbsenceModal, setShowAbsenceModal] = useState(null);
     const [absenceDate, setAbsenceDate] = useState('');
-
-    const weekDays = [
-        { value: '0', label: '일' },
-        { value: '1', label: '월' },
-        { value: '2', label: '화' },
-        { value: '3', label: '수' },
-        { value: '4', label: '목' },
-        { value: '5', label: '금' },
-        { value: '6', label: '토' }
-    ];
 
     const fetchStudents = useCallback(async () => {
         try {
@@ -43,17 +34,6 @@ export default function StudentManagement() {
             setStudents(data);
         } catch (err) {
             console.error("Error fetching students:", err);
-        }
-    }, []);
-
-    const fetchBooks = useCallback(async () => {
-        try {
-            const querySnapshot = await getDocs(collection(db, 'words'));
-            const data = querySnapshot.docs.map(doc => doc.data());
-            const uniqueBooks = [...new Set(data.map(w => w.book_name).filter(Boolean))];
-            setBooks(uniqueBooks);
-        } catch (err) {
-            console.error("Error fetching books:", err);
         }
     }, []);
 
@@ -69,7 +49,6 @@ export default function StudentManagement() {
 
     useEffect(() => {
         fetchStudents();
-        fetchBooks();
         fetchClasses();
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
@@ -186,21 +165,6 @@ export default function StudentManagement() {
         }
     };
 
-
-
-    const toggleStudyDay = (student, day) => {
-        const currentDays = (student.study_days || '1,2,3,4,5').split(',');
-        const newDays = currentDays.includes(day)
-            ? currentDays.filter(d => d !== day)
-            : [...currentDays, day].sort();
-
-        setStudents(students.map(s =>
-            s.id === student.id
-                ? { ...s, study_days: newDays.join(',') }
-                : s
-        ));
-    };
-
     const [selectedClass, setSelectedClass] = useState('all');
 
     const filteredStudents = selectedClass === 'all'
@@ -309,6 +273,17 @@ export default function StudentManagement() {
                                         ) : (
                                             <>
                                                 <button
+                                                    onClick={() => navigate('/admin/student-history', {
+                                                        state: {
+                                                            targetUserId: student.id,
+                                                            targetUserName: student.name || student.username
+                                                        }
+                                                    })}
+                                                    className="px-4 py-1 bg-indigo-600 text-white text-sm rounded hover:bg-indigo-700"
+                                                >
+                                                    기록
+                                                </button>
+                                                <button
                                                     onClick={() => setEditingStudent(student.id)}
                                                     className="px-4 py-1 bg-blue-600 text-white text-sm rounded hover:bg-blue-700"
                                                 >
@@ -326,10 +301,10 @@ export default function StudentManagement() {
                                     </div>
                                 </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                                     {/* Name (Edit Mode) */}
                                     <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">이름 변경</label>
+                                        <label className="block text-sm font-medium text-gray-700 mb-1">이름</label>
                                         {editingStudent === student.id ? (
                                             <div className="space-y-2">
                                                 <input
@@ -367,296 +342,9 @@ export default function StudentManagement() {
                                             <p className="text-gray-600 py-2">{student.class_name || '미배정'}</p>
                                         )}
                                     </div>
-
-                                    {/* Active Books (Multi-Select) */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">학습 중인 단어장 (다중 선택)</label>
-                                        {editingStudent === student.id ? (
-                                            <div className="space-y-1 max-h-40 overflow-y-auto border border-gray-300 rounded-lg p-2 bg-white">
-                                                {books.map(book => {
-                                                    const isActive = (student.active_books || (student.book_name ? [student.book_name] : [])).includes(book);
-                                                    return (
-                                                        <div key={book} className="border-b border-gray-100 last:border-0 pb-2 mb-2">
-                                                            <label className="flex items-center space-x-2 p-1 hover:bg-gray-50 rounded cursor-pointer">
-                                                                <input
-                                                                    type="checkbox"
-                                                                    checked={isActive}
-                                                                    onChange={(e) => {
-                                                                        const currentActive = student.active_books || (student.book_name ? [student.book_name] : []);
-                                                                        let newActive;
-                                                                        if (e.target.checked) {
-                                                                            newActive = [...currentActive, book];
-                                                                        } else {
-                                                                            newActive = currentActive.filter(b => b !== book);
-                                                                        }
-
-                                                                        setStudents(students.map(s =>
-                                                                            s.id === student.id ? {
-                                                                                ...s,
-                                                                                active_books: newActive,
-                                                                                book_name: newActive.length > 0 ? newActive[0] : ''
-                                                                            } : s
-                                                                        ));
-                                                                    }}
-                                                                    className="rounded text-indigo-600 focus:ring-indigo-500 h-4 w-4"
-                                                                />
-                                                                <span className="text-sm font-medium text-gray-700">{book}</span>
-                                                            </label>
-
-                                                            {isActive && (
-                                                                <div className="ml-6 mt-2 grid grid-cols-3 gap-2 bg-gray-50 p-2 rounded-lg">
-                                                                    <div>
-                                                                        <label className="block text-xs font-medium text-gray-500 mb-1">시험 방식</label>
-                                                                        <select
-                                                                            value={student.book_settings?.[book]?.test_mode || 'word_typing'}
-                                                                            onChange={(e) => {
-                                                                                const newSettings = { ...(student.book_settings || {}) };
-                                                                                newSettings[book] = {
-                                                                                    ...(newSettings[book] || {}),
-                                                                                    test_mode: e.target.value
-                                                                                };
-                                                                                setStudents(students.map(s => s.id === student.id ? { ...s, book_settings: newSettings } : s));
-                                                                            }}
-                                                                            className="w-full text-xs border border-gray-300 rounded p-1 outline-none focus:border-indigo-500"
-                                                                        >
-                                                                            <option value="word_typing">단어 시험 (타이핑)</option>
-                                                                            <option value="sentence_click">문장 시험 (클릭 배열)</option>
-                                                                            <option value="sentence_type">문장 시험 (타이핑 배열)</option>
-                                                                        </select>
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="block text-xs font-medium text-gray-500 mb-1">세션당 단어 수</label>
-                                                                        <input
-                                                                            type="number"
-                                                                            value={student.book_settings?.[book]?.words_per_session || student.words_per_session || 10}
-                                                                            onChange={(e) => {
-                                                                                const newSettings = { ...(student.book_settings || {}) };
-                                                                                newSettings[book] = {
-                                                                                    ...(newSettings[book] || {}),
-                                                                                    words_per_session: parseInt(e.target.value)
-                                                                                };
-                                                                                setStudents(students.map(s => s.id === student.id ? { ...s, book_settings: newSettings } : s));
-                                                                            }}
-                                                                            className="w-full text-xs border border-gray-300 rounded p-1 outline-none focus:border-indigo-500"
-                                                                            min="1"
-                                                                        />
-                                                                    </div>
-                                                                    <div>
-                                                                        <label className="block text-xs font-medium text-gray-500 mb-1">현재 진행 단어 번호</label>
-                                                                        <input
-                                                                            type="number"
-                                                                            value={student.book_progress?.[book] || 0}
-                                                                            onChange={(e) => {
-                                                                                const newProgress = { ...(student.book_progress || {}) };
-                                                                                newProgress[book] = parseInt(e.target.value);
-                                                                                setStudents(students.map(s => s.id === student.id ? { ...s, book_progress: newProgress } : s));
-                                                                            }}
-                                                                            className="w-full text-xs border border-gray-300 rounded p-1 outline-none focus:border-indigo-500"
-                                                                            min="0"
-                                                                        />
-                                                                    </div>
-                                                                </div>
-                                                            )}
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        ) : (
-                                            <div className="py-2 flex flex-wrap gap-1">
-                                                {(student.active_books && student.active_books.length > 0
-                                                    ? student.active_books
-                                                    : (student.book_name ? [student.book_name] : [])
-                                                ).map((book, idx) => (
-                                                    <span key={idx} className="inline-block bg-indigo-50 text-indigo-700 text-xs px-2 py-1 rounded border border-indigo-100">
-                                                        {book}
-                                                    </span>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Queued Books */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">학습 대기열 (순서대로 진행)</label>
-                                        {editingStudent === student.id ? (
-                                            <div className="space-y-2">
-                                                <div className="flex gap-2 mb-2">
-                                                    <select
-                                                        id={`queue-select-${student.id}`}
-                                                        className="flex-1 px-3 py-2 border border-gray-300 rounded-lg text-sm outline-none"
-                                                    >
-                                                        <option value="">추가할 단어장 선택</option>
-                                                        {books.filter(b =>
-                                                            !(student.active_books || (student.book_name ? [student.book_name] : [])).includes(b) &&
-                                                            !(student.next_books || []).includes(b)
-                                                        ).map(b => (
-                                                            <option key={b} value={b}>{b}</option>
-                                                        ))}
-                                                    </select>
-                                                    <button
-                                                        onClick={() => {
-                                                            const select = document.getElementById(`queue-select-${student.id}`);
-                                                            const val = select.value;
-                                                            if (val) {
-                                                                const currentQueue = student.next_books || [];
-                                                                setStudents(students.map(s =>
-                                                                    s.id === student.id ? { ...s, next_books: [...currentQueue, val] } : s
-                                                                ));
-                                                                select.value = '';
-                                                            }
-                                                        }}
-                                                        className="px-3 py-2 bg-indigo-600 text-white rounded-lg text-sm hover:bg-indigo-700"
-                                                    >
-                                                        추가
-                                                    </button>
-                                                </div>
-                                                <div className="bg-gray-50 p-2 rounded-lg border border-gray-200 min-h-[50px]">
-                                                    {(student.next_books || []).map((book, idx) => (
-                                                        <div key={idx} className="flex items-center justify-between bg-white p-2 mb-1 rounded border border-gray-100 shadow-sm">
-                                                            <span className="text-sm">{idx + 1}. {book}</span>
-                                                            <button
-                                                                onClick={() => {
-                                                                    const newQueue = [...(student.next_books || [])];
-                                                                    newQueue.splice(idx, 1);
-                                                                    setStudents(students.map(s =>
-                                                                        s.id === student.id ? { ...s, next_books: newQueue } : s
-                                                                    ));
-                                                                }}
-                                                                className="text-red-500 hover:text-red-700 text-xs"
-                                                            >
-                                                                삭제
-                                                            </button>
-                                                        </div>
-                                                    ))}
-                                                    {(student.next_books || []).length === 0 && (
-                                                        <p className="text-gray-400 text-xs text-center py-2">대기 중인 단어장이 없습니다</p>
-                                                    )}
-                                                </div>
-                                            </div>
-                                        ) : (
-                                            <div className="py-2">
-                                                {(student.next_books || []).length > 0 ? (
-                                                    (student.next_books || []).map((book, idx) => (
-                                                        <div key={idx} className="text-sm text-gray-600">
-                                                            {idx + 1}. {book}
-                                                        </div>
-                                                    ))
-                                                ) : (
-                                                    <span className="text-gray-400 text-sm">-</span>
-                                                )}
-                                            </div>
-                                        )}
-                                    </div>
-
-                                    {/* Current Word Index */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">현재 진행 단어 번호</label>
-                                        {editingStudent === student.id ? (
-                                            <input
-                                                type="number"
-                                                value={student.current_word_index || 0}
-                                                onChange={(e) => setStudents(students.map(s =>
-                                                    s.id === student.id ? { ...s, current_word_index: parseInt(e.target.value) } : s
-                                                ))}
-                                                min="0"
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            />
-                                        ) : (
-                                            <p className="text-gray-600 py-2">{student.current_word_index || 0}번</p>
-                                        )}
-                                    </div>
-
-                                    {/* Words Per Session */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">세션당 단어 수</label>
-                                        {editingStudent === student.id ? (
-                                            <input
-                                                type="number"
-                                                value={student.words_per_session || 10}
-                                                onChange={(e) => setStudents(students.map(s =>
-                                                    s.id === student.id ? { ...s, words_per_session: parseInt(e.target.value) } : s
-                                                ))}
-                                                min="1"
-                                                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                                            />
-                                        ) : (
-                                            <p className="text-gray-600 py-2">{student.words_per_session || 10}개</p>
-                                        )}
-                                    </div>
-
-                                    {/* Study Days */}
-                                    <div>
-                                        <label className="block text-sm font-medium text-gray-700 mb-1">학습 요일</label>
-                                        {editingStudent === student.id ? (
-                                            <div className="flex gap-1">
-                                                {weekDays.map(day => (
-                                                    <button
-                                                        key={day.value}
-                                                        type="button"
-                                                        onClick={() => toggleStudyDay(student, day.value)}
-                                                        className={`px-2 py-1 text-xs rounded ${(student.study_days || '1,2,3,4,5').split(',').includes(day.value)
-                                                            ? 'bg-indigo-600 text-white'
-                                                            : 'bg-gray-200 text-gray-600'
-                                                            }`}
-                                                    >
-                                                        {day.label}
-                                                    </button>
-                                                ))}
-                                            </div>
-                                        ) : (
-                                            <p className="text-gray-600 py-2">
-                                                {(student.study_days || '1,2,3,4,5').split(',').map(d => weekDays.find(wd => wd.value === d)?.label).join(', ')}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Daily Word Counts */}
-                                    {editingStudent === student.id && (
-                                        <div className="md:col-span-3 mt-2">
-                                            <label className="block text-sm font-medium text-gray-700 mb-2">요일별 단어 수 (설정 시 기본값 대신 적용됨)</label>
-                                            <div className="flex flex-wrap gap-3">
-                                                {weekDays.map(day => {
-                                                    const isSelected = (student.study_days || '1,2,3,4,5').split(',').includes(day.value);
-                                                    if (!isSelected) return null;
-
-                                                    return (
-                                                        <div key={day.value} className="flex flex-col items-center bg-gray-50 p-2 rounded-lg border border-gray-200">
-                                                            <span className="text-xs font-medium text-gray-600 mb-1">{day.label}요일</span>
-                                                            <input
-                                                                type="number"
-                                                                placeholder={student.words_per_session || 10}
-                                                                value={student.words_per_day?.[day.value] || ''}
-                                                                onChange={(e) => {
-                                                                    const val = e.target.value;
-                                                                    const newWordsPerDay = { ...(student.words_per_day || {}) };
-                                                                    if (val) {
-                                                                        newWordsPerDay[day.value] = parseInt(val);
-                                                                    } else {
-                                                                        delete newWordsPerDay[day.value];
-                                                                    }
-                                                                    setStudents(students.map(s =>
-                                                                        s.id === student.id ? { ...s, words_per_day: newWordsPerDay } : s
-                                                                    ));
-                                                                }}
-                                                                className="w-16 px-2 py-1 text-center border border-gray-300 rounded focus:ring-2 focus:ring-indigo-500 outline-none text-sm"
-                                                            />
-                                                        </div>
-                                                    );
-                                                })}
-                                            </div>
-                                        </div>
-                                    )}
-
-                                    {/* Display Daily Overrides in View Mode */}
-                                    {editingStudent !== student.id && student.words_per_day && Object.keys(student.words_per_day).length > 0 && (
-                                        <div className="md:col-span-3 mt-1">
-                                            <p className="text-xs text-gray-500">
-                                                요일별 설정: {Object.entries(student.words_per_day).map(([dayVal, count]) =>
-                                                    `${weekDays.find(d => d.value === dayVal)?.label}요일(${count}개)`
-                                                ).join(', ')}
-                                            </p>
-                                        </div>
-                                    )}
+                                </div>
+                                <div className="mt-4 pt-4 border-t border-gray-100 text-xs text-gray-400 text-center">
+                                    상세 학습 설정은 '수업 관리' 메뉴를 이용해주세요.
                                 </div>
                             </div>
                         ))}

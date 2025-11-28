@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
 
 export default function Login() {
     const [username, setUsername] = useState('');
@@ -39,6 +39,10 @@ export default function Login() {
                 if (userData.role === 'admin') {
                     navigate('/admin');
                 } else {
+                    // Update last_login for students
+                    await updateDoc(doc(db, 'users', user.uid), {
+                        last_login: new Date().toISOString().split('T')[0] // Store as YYYY-MM-DD for easier comparison
+                    });
                     navigate('/student');
                 }
             } else {

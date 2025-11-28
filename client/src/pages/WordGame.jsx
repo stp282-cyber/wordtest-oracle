@@ -1,9 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, RefreshCw, Trophy, Timer, Move } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Trophy, Timer, Move, DollarSign } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
+import { addDollars, getRewardSettings, getDailyGameEarnings } from '../utils/dollarUtils';
 
 export default function WordGame() {
     const [loading, setLoading] = useState(true);
@@ -14,9 +15,47 @@ export default function WordGame() {
     const [timer, setTimer] = useState(0);
     const [gameComplete, setGameComplete] = useState(false);
     const [gameActive, setGameActive] = useState(false);
+    const [earnedDollars, setEarnedDollars] = useState(0);
+    const [score, setScore] = useState(0);
 
     const navigate = useNavigate();
     const location = useLocation();
+
+    const setupCards = (words) => {
+        const gameCards = [];
+        words.forEach(word => {
+            gameCards.push({
+                id: `en-${word.id}`,
+                wordId: word.id,
+                content: word.english,
+                type: 'english',
+                isFlipped: false,
+                isMatched: false
+            });
+            gameCards.push({
+                id: `ko-${word.id}`,
+                wordId: word.id,
+                content: word.korean,
+                type: 'korean',
+                isFlipped: false,
+                isMatched: false
+            });
+        });
+
+        for (let i = gameCards.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [gameCards[i], gameCards[j]] = [gameCards[j], gameCards[i]];
+        }
+
+        setCards(gameCards);
+        setFlippedCards([]);
+        setMatchedPairs([]);
+        setMoves(0);
+        setTimer(0);
+        setGameComplete(false);
+        setEarnedDollars(0);
+        setScore(0);
+    };
 
     // Fetch words and setup game
     useEffect(() => {
@@ -71,39 +110,7 @@ export default function WordGame() {
         return () => clearInterval(interval);
     }, [gameActive, gameComplete]);
 
-    const setupCards = (words) => {
-        const gameCards = [];
-        words.forEach(word => {
-            gameCards.push({
-                id: `en-${word.id}`,
-                wordId: word.id,
-                content: word.english,
-                type: 'english',
-                isFlipped: false,
-                isMatched: false
-            });
-            gameCards.push({
-                id: `ko-${word.id}`,
-                wordId: word.id,
-                content: word.korean,
-                type: 'korean',
-                isFlipped: false,
-                isMatched: false
-            });
-        });
 
-        for (let i = gameCards.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [gameCards[i], gameCards[j]] = [gameCards[j], gameCards[i]];
-        }
-
-        setCards(gameCards);
-        setFlippedCards([]);
-        setMatchedPairs([]);
-        setMoves(0);
-        setTimer(0);
-        setGameComplete(false);
-    };
 
     const handleCardClick = (index) => {
         if (gameComplete || !gameActive) return;
@@ -123,7 +130,7 @@ export default function WordGame() {
         }
     };
 
-    const checkMatch = (flipped, currentCards) => {
+    const checkMatch = async (flipped, currentCards) => {
         const [card1, card2] = flipped;
         const isMatch = card1.wordId === card2.wordId;
 
@@ -151,6 +158,34 @@ export default function WordGame() {
 
             if (newMatched.length === (cards.length / 2)) {
                 setGameComplete(true);
+
+                // Calculate Score: Max 100. Deduct for extra moves and time.
+                // Ideal moves = pairs.
+                const pairs = cards.length / 2;
+                // current 'moves' state is not updated yet in this render cycle, so use moves + 1
+                const finalMoves = moves + 1;
+
+                // Formula: 100 - (Extra Moves * 5) - (Time / 2)
+                const extraMoves = Math.max(0, finalMoves - pairs);
+                const calculatedScore = Math.max(0, Math.round(100 - (extraMoves * 5) - (timer / 2)));
+                setScore(calculatedScore);
+
+                // Check for reward
+                const settings = await getRewardSettings();
+                if (calculatedScore >= settings.game_high_score_threshold) {
+                    const userId = localStorage.getItem('userId');
+                    const dailyEarnings = await getDailyGameEarnings(userId);
+                    const remainingLimit = (settings.game_daily_max_reward || 0.5) - dailyEarnings;
+
+                    if (remainingLimit > 0) {
+                        const rewardAmount = Math.min(settings.game_high_score_reward, remainingLimit);
+                        if (rewardAmount > 0) {
+                            await addDollars(userId, rewardAmount, `카드 뒤집기 게임 고득점 (${calculatedScore}점)`, 'game_reward');
+                            setEarnedDollars(rewardAmount);
+                        }
+                    }
+                }
+
                 triggerWinConfetti();
             }
         } else {
@@ -167,7 +202,7 @@ export default function WordGame() {
         }
     };
 
-    const triggerWinConfetti = () => {
+    const triggerWinConfetti = useCallback(() => {
         const duration = 3000;
         const animationEnd = Date.now() + duration;
         const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
@@ -180,7 +215,7 @@ export default function WordGame() {
             confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
             confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
         }, 250);
-    };
+    }, []);
 
     const handleRestart = () => {
         const resetCards = cards.map(c => ({
@@ -201,6 +236,8 @@ export default function WordGame() {
         setTimer(0);
         setGameComplete(false);
         setGameActive(true);
+        setEarnedDollars(0);
+        setScore(0);
     };
 
     const formatTime = (seconds) => {
@@ -289,10 +326,26 @@ export default function WordGame() {
                                 <Trophy className="w-20 h-20 text-yellow-400 mx-auto mb-4 relative z-10 animate-bounce" />
                             </div>
                             <h2 className="text-3xl font-bold text-white mb-2">스테이지 클리어!</h2>
-                            <p className="text-indigo-200 mb-8">
+                            <p className="text-indigo-200 mb-4">
                                 <span className="font-bold text-white">{moves}</span>번의 이동으로<br />
                                 <span className="font-bold text-white">{formatTime(timer)}</span>만에 완료했습니다!
                             </p>
+
+                            <div className="mb-6">
+                                <p className="text-sm text-indigo-300">획득 점수</p>
+                                <p className="text-4xl font-black text-white drop-shadow-lg">{score}점</p>
+                            </div>
+
+                            {earnedDollars > 0 && (
+                                <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-4 mb-6 animate-pulse">
+                                    <p className="text-green-300 font-bold mb-1">획득한 보상</p>
+                                    <div className="flex items-center justify-center text-3xl font-bold text-green-400">
+                                        <DollarSign className="w-8 h-8 mr-1" />
+                                        {earnedDollars.toFixed(2)}
+                                    </div>
+                                </div>
+                            )}
+
                             <div className="space-y-3">
                                 <button
                                     onClick={handleRestart}

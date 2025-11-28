@@ -1,13 +1,14 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay, addDays, getDay, getWeekOfMonth } from 'date-fns';
-import { LogOut, BookOpen, Calendar as CalendarIcon, CheckCircle, ChevronLeft, ChevronRight, PlayCircle } from 'lucide-react';
+import { format, startOfWeek, addDays, isSameDay, getDay, addWeeks, subWeeks, getWeekOfMonth } from 'date-fns';
+import { LogOut, BookOpen, Calendar as CalendarIcon, CheckCircle, ChevronLeft, ChevronRight, PlayCircle, DollarSign, Swords, Skull, Megaphone } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc, limit } from 'firebase/firestore';
 
 export default function StudentDashboard() {
     const [history, setHistory] = useState([]);
     const [settings, setSettings] = useState(null);
+    const [announcements, setAnnouncements] = useState([]);
     const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 0 }));
     const navigate = useNavigate();
     const username = localStorage.getItem('username');
@@ -57,9 +58,38 @@ export default function StudentDashboard() {
                                 userData = { ...userData, ...updates };
                             }
                         }
+
                     }
 
                     setSettings(userData);
+
+                    // Fetch Announcements
+                    const announcementsRef = collection(db, 'announcements');
+                    const qAll = query(announcementsRef, where('targetClassId', '==', 'all'), limit(20));
+                    const snapAll = await getDocs(qAll);
+
+                    let classAnnouncements = [];
+                    if (userData.class_id) {
+                        const qClass = query(announcementsRef, where('targetClassId', '==', userData.class_id), limit(20));
+                        const snapClass = await getDocs(qClass);
+                        classAnnouncements = snapClass.docs.map(d => ({ id: d.id, ...d.data() }));
+                    }
+
+                    // Combine and deduplicate
+                    const allDocs = snapAll.docs.map(d => ({ id: d.id, ...d.data() }));
+                    if (classAnnouncements.length > 0) {
+                        allDocs.push(...classAnnouncements);
+                    }
+
+                    const uniqueMap = new Map();
+                    allDocs.forEach(item => uniqueMap.set(item.id, item));
+                    const uniqueDocs = Array.from(uniqueMap.values());
+
+                    const sortedAnnouncements = uniqueDocs
+                        .sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt))
+                        .slice(0, 5);
+
+                    setAnnouncements(sortedAnnouncements);
                 }
 
                 // Fetch History
@@ -254,6 +284,10 @@ export default function StudentDashboard() {
                         <h1 className="text-xl font-bold text-gray-800">나의 학습 계획</h1>
                     </div>
                     <div className="flex items-center space-x-4">
+                        <div className="flex items-center bg-green-100 px-4 py-2 rounded-full border border-green-200 shadow-sm animate-fade-in">
+                            <DollarSign className="w-5 h-5 text-green-600 mr-2" />
+                            <span className="font-bold text-green-800 text-lg">{settings?.dollar_balance ? settings.dollar_balance.toFixed(2) : '0.00'}</span>
+                        </div>
                         <span className="text-gray-600">안녕하세요, <b>{localStorage.getItem('name') || username}</b>님</span>
                         <button onClick={handleLogout} className="p-2 text-gray-500 hover:text-red-600 transition-colors">
                             <LogOut className="w-5 h-5" />
@@ -261,16 +295,50 @@ export default function StudentDashboard() {
                     </div>
                 </div>
             </header>
-            <div className="flex justify-center mb-6">
+            <div className="flex justify-center mb-6 space-x-4">
                 <button
                     onClick={() => navigate('/student/history')}
                     className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
                 >
                     내 학습 기록 보기
                 </button>
+                <button
+                    onClick={() => navigate('/student/battle')}
+                    className="px-4 py-2 bg-gradient-to-r from-red-500 to-orange-500 text-white rounded-lg hover:from-red-600 hover:to-orange-600 transition-all shadow-md flex items-center"
+                >
+                    <Swords className="w-4 h-4 mr-2" />
+                    배틀 아레나 입장
+                </button>
+                <button
+                    onClick={() => navigate('/student/survival')}
+                    className="px-4 py-2 bg-gradient-to-r from-gray-800 to-black text-white rounded-lg hover:from-gray-700 hover:to-gray-900 transition-all shadow-md flex items-center"
+                >
+                    <Skull className="w-4 h-4 mr-2" />
+                    단어 서바이벌 입장
+                </button>
             </div>
 
             <main className="max-w-7xl px-4 py-8 mx-auto space-y-8">
+                {/* Announcement Section */}
+                {announcements.length > 0 && (
+                    <div className="bg-white rounded-2xl shadow-sm border border-indigo-100 overflow-hidden">
+                        <div className="bg-indigo-50 px-6 py-4 border-b border-indigo-100 flex items-center">
+                            <Megaphone className="w-5 h-5 text-indigo-600 mr-2" />
+                            <h2 className="text-lg font-bold text-indigo-900">공지사항</h2>
+                        </div>
+                        <div className="divide-y divide-gray-100">
+                            {announcements.map(announcement => (
+                                <div key={announcement.id} className="p-4 hover:bg-gray-50 transition-colors">
+                                    <div className="flex justify-between items-start mb-1">
+                                        <h3 className="font-bold text-gray-800">{announcement.title}</h3>
+                                        <span className="text-xs text-gray-400">{new Date(announcement.createdAt).toLocaleDateString()}</span>
+                                    </div>
+                                    <p className="text-sm text-gray-600 whitespace-pre-wrap">{announcement.content}</p>
+                                </div>
+                            ))}
+                        </div>
+                    </div>
+                )}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
                     <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                         <div className="flex items-center space-x-4">
@@ -328,7 +396,7 @@ export default function StudentDashboard() {
                                                     <div className="flex flex-col items-center space-y-3">
                                                         {range && (
                                                             <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
-                                                                단어 {range.start} ~ {range.end - 1}
+                                                                범위 {range.start} ~ {range.end - 1}
                                                             </span>
                                                         )}
 
@@ -364,7 +432,7 @@ export default function StudentDashboard() {
                                                                             }
                                                                         `}
                                                                     >
-                                                                        {isPast || isTodayFlag ? '학습하기' : '대기'}
+                                                                        {isPast || isTodayFlag ? '학습하기' : '학습하기'}
                                                                     </button>
                                                                 </div>
                                                             ) : (

@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowRight, Check, RotateCcw, BookOpen, Trophy } from 'lucide-react';
+import { ArrowRight, Check, RotateCcw, BookOpen, Trophy, DollarSign } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
+import { addDollars, getRewardSettings } from '../utils/dollarUtils';
 
 const isSentence = (text) => text && text.trim().split(/\s+/).length >= 3;
 
@@ -35,6 +36,7 @@ export default function TestInterface() {
     const [initialTestType, setInitialTestType] = useState('new_words');
     const [maxWordNumber, setMaxWordNumber] = useState(0);
     const [currentBookName, setCurrentBookName] = useState('');
+    const [earnedDollars, setEarnedDollars] = useState(0);
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -197,12 +199,10 @@ export default function TestInterface() {
         return () => window.removeEventListener('keydown', handleKeyDown);
     }, []);
 
-
-
     useEffect(() => {
         const word = currentTestWords[currentIndex];
-        // Only scramble if we are in sentence_click mode
-        if (word && testMode === 'sentence_click' && isSentence(word.english)) {
+        // Scramble if we are in sentence_click or sentence_type mode
+        if (word && (testMode === 'sentence_click' || testMode === 'sentence_type') && isSentence(word.english)) {
             const words = word.english.trim().split(/\s+/);
             const shuffled = [...words].map((w, i) => ({ text: w, id: i }));
             for (let i = shuffled.length - 1; i > 0; i--) {
@@ -232,8 +232,6 @@ export default function TestInterface() {
         handleAnswer(answer);
     };
 
-
-
     // Speech synthesis helper – reads English word aloud
     const speakWord = (text) => {
         if (!window.speechSynthesis) return;
@@ -241,8 +239,6 @@ export default function TestInterface() {
         utter.lang = 'en-US';
         window.speechSynthesis.speak(utter);
     };
-
-
 
     const handleAnswer = (answer) => {
         if (isSubmitting.current || allTestsComplete) return;
@@ -382,6 +378,7 @@ export default function TestInterface() {
         const reviewWordsScore = reviewTotal > 0 ? Math.round((reviewCorrect / reviewTotal) * 100) : 0;
 
         const userId = localStorage.getItem('userId');
+        let totalEarned = 0;
 
         try {
             // Save Test Result
@@ -405,6 +402,15 @@ export default function TestInterface() {
                 scheduled_date: location.state?.scheduledDate || null,
                 book_name: currentBookName
             });
+
+            // Reward Calculation
+            const rewardSettings = await getRewardSettings();
+
+            // 1. Daily Completion Reward
+            if (location.state?.scheduledDate) {
+                await addDollars(userId, rewardSettings.daily_completion_reward, '매일 학습 완료');
+                totalEarned += rewardSettings.daily_completion_reward;
+            }
 
             // Update User Progress
             const userRef = doc(db, 'users', userId);
@@ -432,6 +438,10 @@ export default function TestInterface() {
                     const activeBooks = userData.active_books || [userData.book_name];
                     const nextBooks = userData.next_books || [];
 
+                    // 2. Curriculum Completion Reward
+                    await addDollars(userId, rewardSettings.curriculum_completion_reward, `'${currentBookName}' 완독`);
+                    totalEarned += rewardSettings.curriculum_completion_reward;
+
                     // If this book is in active_books, remove it
                     if (activeBooks.includes(currentBookName)) {
                         const newActiveBooks = activeBooks.filter(b => b !== currentBookName);
@@ -457,6 +467,7 @@ export default function TestInterface() {
                 await updateDoc(userRef, updates);
             }
 
+            setEarnedDollars(totalEarned);
             setAllTestsComplete(true);
             triggerConfetti(); // Celebration!
         } catch (err) {
@@ -499,6 +510,17 @@ export default function TestInterface() {
                     <div className="text-6xl font-black text-yellow-400 drop-shadow-lg">
                         {score}<span className="text-2xl text-indigo-200 font-medium">점</span>
                     </div>
+
+                    {earnedDollars > 0 && (
+                        <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-4 animate-pulse">
+                            <p className="text-green-300 font-bold mb-1">획득한 보상</p>
+                            <div className="flex items-center justify-center text-3xl font-bold text-green-400">
+                                <DollarSign className="w-8 h-8 mr-1" />
+                                {earnedDollars.toFixed(2)}
+                            </div>
+                        </div>
+                    )}
+
                     <p className="text-indigo-200">
                         {totalWords}문제 중 <span className="text-white font-bold">{correctCount}</span>개를 맞췄습니다.
                     </p>
@@ -634,26 +656,29 @@ export default function TestInterface() {
                     <div className="p-8">
                         {testMode === 'sentence_click' ? (
                             <div className="space-y-6">
-                                <div className="min-h-[80px] p-4 bg-black/20 rounded-xl border-2 border-white/10 flex flex-wrap gap-2 items-center shadow-inner">
-                                    {selectedWords.map((w) => (
-                                        <button
-                                            key={w.id}
-                                            onClick={() => handleSentenceUndo(w)}
-                                            className="px-4 py-2 bg-indigo-500 text-white rounded-lg font-bold hover:bg-indigo-600 transition-all shadow-lg transform hover:-translate-y-1"
-                                        >
-                                            {w.text}
-                                        </button>
-                                    ))}
-                                    {selectedWords.length === 0 && (
-                                        <span className="text-indigo-300 text-sm mx-auto">단어를 클릭하여 문장을 완성하세요</span>
-                                    )}
+                                <div className="min-h-[100px] flex items-center justify-center mb-8">
+                                    <div className="flex flex-wrap gap-2 justify-center">
+                                        {selectedWords.map((w) => (
+                                            <button
+                                                key={w.id}
+                                                onClick={() => handleSentenceUndo(w)}
+                                                className="px-6 py-3 bg-white text-gray-900 rounded-xl font-bold text-lg shadow-lg hover:bg-gray-50 transition-all transform hover:-translate-y-1 border-b-4 border-gray-200"
+                                            >
+                                                {w.text}
+                                            </button>
+                                        ))}
+                                        {selectedWords.length === 0 && (
+                                            <span className="text-indigo-200 text-lg animate-pulse">단어를 순서대로 선택하세요</span>
+                                        )}
+                                    </div>
                                 </div>
-                                <div className="flex flex-wrap gap-2 justify-center">
+
+                                <div className="flex flex-wrap gap-3 justify-center">
                                     {scrambledWords.map((w) => (
                                         <button
                                             key={w.id}
                                             onClick={() => handleSentenceClick(w)}
-                                            className="px-4 py-2 bg-white text-indigo-900 rounded-lg font-bold hover:bg-indigo-50 transition-all shadow-md transform hover:-translate-y-1 border-b-4 border-indigo-200"
+                                            className="px-6 py-3 bg-white text-gray-900 rounded-xl font-bold text-lg shadow-lg hover:bg-gray-50 transition-all transform hover:-translate-y-1 border-b-4 border-gray-200"
                                         >
                                             {w.text}
                                         </button>
@@ -693,6 +718,18 @@ export default function TestInterface() {
                             </div>
                         ) : (
                             <div className="space-y-4">
+                                {testMode === 'sentence_type' && scrambledWords.length > 0 && (
+                                    <div className="flex flex-wrap gap-2 justify-center mb-4">
+                                        {scrambledWords.map((w) => (
+                                            <span
+                                                key={w.id}
+                                                className="px-3 py-1.5 bg-white/20 text-white rounded-lg font-medium text-sm border border-white/10"
+                                            >
+                                                {w.text}
+                                            </span>
+                                        ))}
+                                    </div>
+                                )}
                                 <form
                                     onSubmit={(e) => {
                                         e.preventDefault();

@@ -1,9 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { Timer, Zap, Trophy, ArrowLeft, RefreshCw, CheckCircle, XCircle } from 'lucide-react';
+import { Timer, Zap, Trophy, ArrowLeft, RefreshCw, CheckCircle, XCircle, DollarSign } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
+import { addDollars, getRewardSettings, getDailyGameEarnings } from '../utils/dollarUtils';
 
 export default function SpeedQuiz() {
     const [loading, setLoading] = useState(true);
@@ -16,6 +17,7 @@ export default function SpeedQuiz() {
     const [combo, setCombo] = useState(0);
     const [gameState, setGameState] = useState('loading'); // loading, ready, playing, success, fail
     const [feedback, setFeedback] = useState(null); // 'correct', 'incorrect'
+    const [earnedDollars, setEarnedDollars] = useState(0);
 
     const navigate = useNavigate();
     const location = useLocation();
@@ -85,7 +87,7 @@ export default function SpeedQuiz() {
             const newOptions = [...distractors, current]
                 .sort(() => 0.5 - Math.random());
 
-            setOptions(newOptions);
+            setTimeout(() => setOptions(newOptions), 0);
         }
     }, [currentIndex, words]);
 
@@ -105,6 +107,29 @@ export default function SpeedQuiz() {
         }
         return () => clearInterval(timerRef.current);
     }, [gameState]);
+
+    // Handle Game Success Reward
+    useEffect(() => {
+        const handleReward = async () => {
+            if (gameState === 'success') {
+                const settings = await getRewardSettings();
+                if (score >= settings.game_high_score_threshold) {
+                    const userId = localStorage.getItem('userId');
+                    const dailyEarnings = await getDailyGameEarnings(userId);
+                    const remainingLimit = (settings.game_daily_max_reward || 0.5) - dailyEarnings;
+
+                    if (remainingLimit > 0) {
+                        const rewardAmount = Math.min(settings.game_high_score_reward, remainingLimit);
+                        if (rewardAmount > 0) {
+                            await addDollars(userId, rewardAmount, `스피드 퀴즈 고득점 (${score}점)`, 'game_reward');
+                            setEarnedDollars(rewardAmount);
+                        }
+                    }
+                }
+            }
+        };
+        handleReward();
+    }, [gameState, score]);
 
     const startGame = () => {
         setGameState('playing');
@@ -153,7 +178,7 @@ export default function SpeedQuiz() {
         }
     };
 
-    const triggerConfetti = () => {
+    const triggerConfetti = useCallback(() => {
         const duration = 3000;
         const animationEnd = Date.now() + duration;
         const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
@@ -171,7 +196,7 @@ export default function SpeedQuiz() {
             confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
             confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
         }, 250);
-    };
+    }, []);
 
     const handleRestart = () => {
         // Reshuffle
@@ -183,6 +208,7 @@ export default function SpeedQuiz() {
         setTimeLeft(maxTime);
         setGameState('ready');
         setFeedback(null);
+        setEarnedDollars(0);
     };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-indigo-900 text-white">로딩 중...</div>;
@@ -318,6 +344,16 @@ export default function SpeedQuiz() {
                                 <span className="text-xl font-bold text-white">{timeLeft.toFixed(1)}초</span>
                             </div>
                         </div>
+
+                        {earnedDollars > 0 && (
+                            <div className="bg-green-500/20 border border-green-500/30 rounded-xl p-4 mb-6 animate-pulse">
+                                <p className="text-green-300 font-bold mb-1">획득한 보상</p>
+                                <div className="flex items-center justify-center text-3xl font-bold text-green-400">
+                                    <DollarSign className="w-8 h-8 mr-1" />
+                                    {earnedDollars.toFixed(2)}
+                                </div>
+                            </div>
+                        )}
 
                         <div className="w-full space-y-3">
                             <button

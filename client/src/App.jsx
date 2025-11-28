@@ -13,6 +13,13 @@ import AdminDashboard from './pages/AdminDashboard';
 import WordManagement from './pages/WordManagement';
 import StudentManagement from './pages/StudentManagement';
 import ClassManagement from './pages/ClassManagement';
+import LessonManagement from './pages/LessonManagement';
+import DollarManagement from './pages/DollarManagement';
+import AnnouncementManagement from './pages/AnnouncementManagement';
+import BattleLobby from './pages/BattleLobby';
+import BattleRoom from './pages/BattleRoom';
+import SurvivalLobby from './pages/SurvivalLobby';
+import SurvivalGame from './pages/SurvivalGame';
 import Layout from './components/Layout';
 
 const PrivateRoute = ({ children, role }) => {
@@ -98,6 +105,38 @@ function App() {
                 </PrivateRoute>
               }
             />
+            <Route
+              path="/student/battle"
+              element={
+                <PrivateRoute role="student">
+                  <BattleLobby />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/battle/:roomId"
+              element={
+                <PrivateRoute role="student">
+                  <BattleRoom />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/survival"
+              element={
+                <PrivateRoute role="student">
+                  <SurvivalLobby />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/survival/:roomId"
+              element={
+                <PrivateRoute role="student">
+                  <SurvivalGame />
+                </PrivateRoute>
+              }
+            />
 
             {/* Admin Routes */}
             <Route
@@ -129,6 +168,38 @@ function App() {
               element={
                 <PrivateRoute role="admin">
                   <ClassManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/lessons"
+              element={
+                <PrivateRoute role="admin">
+                  <LessonManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/dollars"
+              element={
+                <PrivateRoute role="admin">
+                  <DollarManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/announcements"
+              element={
+                <PrivateRoute role="admin">
+                  <AnnouncementManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/student-history"
+              element={
+                <PrivateRoute role="admin">
+                  <StudyHistory />
                 </PrivateRoute>
               }
             />

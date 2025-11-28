@@ -1,6 +1,7 @@
 import React from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { LogOut, Home } from 'lucide-react';
+import Messenger from './Messenger';
 
 export default function Layout() {
     const navigate = useNavigate();
@@ -57,6 +58,7 @@ export default function Layout() {
             <main>
                 <Outlet />
             </main>
+            <Messenger />
         </div>
     );
 }
