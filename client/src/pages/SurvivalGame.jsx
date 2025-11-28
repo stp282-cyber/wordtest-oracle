@@ -216,6 +216,19 @@ export default function SurvivalGame() {
         updateGameRef.current = updateGame;
     }, [updateGame]);
 
+    // Start game loop when playing
+    useEffect(() => {
+        if (gameState === 'playing' && words.length > 0) {
+            requestRef.current = requestAnimationFrame((t) => updateGameRef.current(t));
+            inputRef.current?.focus();
+        }
+        return () => {
+            if (requestRef.current) {
+                cancelAnimationFrame(requestRef.current);
+            }
+        };
+    }, [gameState, words.length]);
+
     const handleInput = (e) => {
         const value = e.target.value;
         setUserInput(value);

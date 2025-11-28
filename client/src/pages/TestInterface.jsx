@@ -244,7 +244,9 @@ export default function TestInterface() {
         if (isSubmitting.current || allTestsComplete) return;
 
         const currentWord = currentTestWords[currentIndex];
-        const correctAnswer = testMode === 'review' ? currentWord.korean : currentWord.english;
+        // word_typing 모드(testMode === 'new')에서는 영어를 보고 한글을 입력
+        // review 모드에서는 한글을 보고 영어를 입력
+        const correctAnswer = testMode === 'review' ? currentWord.english : currentWord.korean;
 
         const normalizedAnswer = answer.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
         const normalizedCorrect = correctAnswer.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
