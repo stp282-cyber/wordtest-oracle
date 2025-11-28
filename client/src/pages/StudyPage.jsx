@@ -29,7 +29,10 @@ export default function StudyPage() {
                 }
                 const settings = userDoc.data();
                 const bookName = location.state?.bookName || settings.book_name || '기본';
-                const wordsPerSession = settings.words_per_session || 10;
+
+                const bookSettings = settings.book_settings?.[bookName] || {};
+                const bookWordsPerSession = bookSettings.words_per_session ? parseInt(bookSettings.words_per_session) : null;
+                const wordsPerSession = bookWordsPerSession || settings.words_per_session || 10;
 
                 let currentWordIndex = 0;
                 if (settings.book_progress && settings.book_progress[bookName] !== undefined) {

@@ -92,8 +92,17 @@ export default function StudentDashboard() {
             currentIndex = settings.current_word_index || 0;
         }
 
+        const bookSettings = settings.book_settings?.[bookName] || {};
+        const bookWordsPerSession = bookSettings.words_per_session ? parseInt(bookSettings.words_per_session) : null;
+
         const defaultWordsPerSession = settings.words_per_session || 10;
         const dailyCounts = settings.words_per_day || {};
+
+        const getWordsForDay = (dayStr) => {
+            if (bookWordsPerSession) return bookWordsPerSession;
+            if (dailyCounts[dayStr]) return parseInt(dailyCounts[dayStr]);
+            return defaultWordsPerSession;
+        };
 
         // Helper to check if a specific day was completed for THIS book
         const isDayCompleted = (dayToCheck) => {
@@ -119,14 +128,14 @@ export default function StudentDashboard() {
             for (const day of daysInRange) {
                 if (isDayCompleted(day)) {
                     const dayOfWeek = getDay(day).toString();
-                    const wordsForThisDay = dailyCounts[dayOfWeek] ? parseInt(dailyCounts[dayOfWeek]) : defaultWordsPerSession;
+                    const wordsForThisDay = getWordsForDay(dayOfWeek);
                     accumulatedWords -= wordsForThisDay;
                 }
             }
         } else if (targetDate > today) {
             if (!todayCompleted && isStudyDay(today)) {
                 const todayOfWeek = getDay(today).toString();
-                const wordsForToday = dailyCounts[todayOfWeek] ? parseInt(dailyCounts[todayOfWeek]) : defaultWordsPerSession;
+                const wordsForToday = getWordsForDay(todayOfWeek);
                 accumulatedWords += wordsForToday;
             }
 
@@ -139,7 +148,7 @@ export default function StudentDashboard() {
                 for (const day of interimDays) {
                     if (isStudyDay(day)) {
                         const dayOfWeek = getDay(day).toString();
-                        const wordsForThisDay = dailyCounts[dayOfWeek] ? parseInt(dailyCounts[dayOfWeek]) : defaultWordsPerSession;
+                        const wordsForThisDay = getWordsForDay(dayOfWeek);
                         accumulatedWords += wordsForThisDay;
                     }
                 }
@@ -150,7 +159,7 @@ export default function StudentDashboard() {
         }
 
         const targetDayOfWeek = getDay(targetDate).toString();
-        const wordsForTargetDay = dailyCounts[targetDayOfWeek] ? parseInt(dailyCounts[targetDayOfWeek]) : defaultWordsPerSession;
+        const wordsForTargetDay = getWordsForDay(targetDayOfWeek);
 
         const baseWordNumber = currentIndex;
         const startWordNumber = baseWordNumber + accumulatedWords;

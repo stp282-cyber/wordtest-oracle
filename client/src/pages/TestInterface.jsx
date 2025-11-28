@@ -86,7 +86,18 @@ export default function TestInterface() {
 
                     const today = new Date().getDay().toString();
                     const dailyCounts = settings.words_per_day || {};
-                    const wordsPerSession = dailyCounts[today] ? parseInt(dailyCounts[today]) : (settings.words_per_session || 10);
+
+                    const bookSettings = settings.book_settings?.[bookName] || {};
+                    const bookWordsPerSession = bookSettings.words_per_session ? parseInt(bookSettings.words_per_session) : null;
+
+                    let wordsPerSession;
+                    if (bookWordsPerSession) {
+                        wordsPerSession = bookWordsPerSession;
+                    } else if (dailyCounts[today]) {
+                        wordsPerSession = parseInt(dailyCounts[today]);
+                    } else {
+                        wordsPerSession = settings.words_per_session || 10;
+                    }
 
                     endWordNumber = startWordNumber + wordsPerSession;
                     console.log('Using calculated range (Today):', startWordNumber, endWordNumber);
