@@ -41,6 +41,12 @@ export default function StudyHistory() {
                     total,
                     correct,
                     wrong,
+                    newWordsScore: record.new_words_score,
+                    newWordsTotal: record.new_words_total,
+                    newWordsCorrect: record.new_words_correct,
+                    reviewWordsScore: record.review_words_score,
+                    reviewWordsTotal: record.review_words_total,
+                    reviewWordsCorrect: record.review_words_correct,
                     details: details.map(d => ({
                         questionNumber: d.word?.word_number || '?',
                         questionName: d.word?.english || '?',
@@ -96,6 +102,13 @@ export default function StudyHistory() {
                                 <div>정답: {day.correct}</div>
                                 <div>오답: {day.wrong}</div>
                                 <div>백점 만점: 100</div>
+                                {day.newWordsTotal !== undefined && (
+                                    <>
+                                        <div className="col-span-2 border-t border-gray-100 my-2"></div>
+                                        <div className="text-indigo-600 font-medium">기본 단어: {day.newWordsScore}점 ({day.newWordsCorrect}/{day.newWordsTotal})</div>
+                                        <div className="text-blue-600 font-medium">복습 단어: {day.reviewWordsScore}점 ({day.reviewWordsCorrect}/{day.reviewWordsTotal})</div>
+                                    </>
+                                )}
                             </div>
                             <div className="overflow-x-auto">
                                 <table className="min-w-full table-auto border border-gray-200">

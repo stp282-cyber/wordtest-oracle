@@ -29,8 +29,8 @@ export default function Layout() {
             <nav className="bg-white shadow-sm sticky top-0 z-50">
                 <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
                     <div className="flex justify-between h-16">
-                        <div className="flex items-center cursor-pointer" onClick={handleGoHome}>
-                            <span className="text-xl font-bold text-indigo-600">Eastern WordTest</span>
+                        <div className="flex items-center cursor-pointer group" onClick={handleGoHome}>
+                            <span className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-indigo-600 to-blue-500 tracking-tight group-hover:from-indigo-500 group-hover:to-blue-400 transition-all">Eastern WordTest</span>
                         </div>
                         <div className="flex items-center space-x-4">
                             <span className="text-gray-600 text-sm">

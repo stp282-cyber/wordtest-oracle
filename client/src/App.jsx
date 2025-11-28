@@ -5,6 +5,10 @@ import StudentDashboard from './pages/StudentDashboard';
 import StudyHistory from './pages/StudyHistory';
 import StudyPage from './pages/StudyPage';
 import TestInterface from './pages/TestInterface';
+import WordGame from './pages/WordGame';
+import WordScramble from './pages/WordScramble';
+import SpeedQuiz from './pages/SpeedQuiz';
+import WordRain from './pages/WordRain';
 import AdminDashboard from './pages/AdminDashboard';
 import WordManagement from './pages/WordManagement';
 import StudentManagement from './pages/StudentManagement';
@@ -51,6 +55,38 @@ function App() {
               element={
                 <PrivateRoute role="student">
                   <TestInterface />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/game"
+              element={
+                <PrivateRoute role="student">
+                  <WordGame />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/scramble"
+              element={
+                <PrivateRoute role="student">
+                  <WordScramble />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/speed"
+              element={
+                <PrivateRoute role="student">
+                  <SpeedQuiz />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/student/rain"
+              element={
+                <PrivateRoute role="student">
+                  <WordRain />
                 </PrivateRoute>
               }
             />

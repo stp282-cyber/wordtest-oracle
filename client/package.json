@@ -11,6 +11,7 @@
     "deploy:preview": "npm run build && firebase hosting:channel:deploy dev"
   },
   "dependencies": {
+    "canvas-confetti": "^1.9.4",
     "date-fns": "^4.1.0",
     "firebase": "^12.6.0",
     "lucide-react": "^0.554.0",

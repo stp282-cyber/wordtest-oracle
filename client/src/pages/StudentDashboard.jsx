@@ -1,29 +1,65 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { format, startOfMonth, endOfMonth, eachDayOfInterval, isSameDay, isToday, getDay, addMonths, subMonths } from 'date-fns';
-import { LogOut, BookOpen, Calendar as CalendarIcon, CheckCircle, ChevronLeft, ChevronRight } from 'lucide-react';
+import { format, startOfWeek, endOfWeek, addWeeks, subWeeks, isSameDay, addDays, getDay, getWeekOfMonth } from 'date-fns';
+import { LogOut, BookOpen, Calendar as CalendarIcon, CheckCircle, ChevronLeft, ChevronRight, PlayCircle } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
 
 export default function StudentDashboard() {
     const [history, setHistory] = useState([]);
     const [settings, setSettings] = useState(null);
-    const [todayCompleted, setTodayCompleted] = useState(false);
-    const [currentMonth, setCurrentMonth] = useState(new Date());
-    const [selectedBook, setSelectedBook] = useState(null);
+    const [currentWeekStart, setCurrentWeekStart] = useState(startOfWeek(new Date(), { weekStartsOn: 0 }));
     const navigate = useNavigate();
     const username = localStorage.getItem('username');
+    const userId = localStorage.getItem('userId');
 
+    // Fetch Dashboard Data
     useEffect(() => {
         const fetchDashboard = async () => {
-            const userId = localStorage.getItem('userId');
             if (!userId) return;
 
             try {
                 // Fetch User Settings
-                const userDoc = await getDoc(doc(db, 'users', userId));
+                const userRef = doc(db, 'users', userId);
+                const userDoc = await getDoc(userRef);
+
                 if (userDoc.exists()) {
-                    setSettings(userDoc.data());
+                    let userData = userDoc.data();
+
+                    // Check if student has no active books
+                    const hasNoBooks = !userData.active_books || userData.active_books.length === 0;
+                    const hasNoBookName = !userData.book_name;
+
+                    if (hasNoBooks && hasNoBookName) {
+                        // Find a default book from words collection
+                        const wordsQuery = query(collection(db, 'words'), where('book_name', '!=', ''));
+                        const querySnapshot = await getDocs(wordsQuery);
+
+                        if (!querySnapshot.empty) {
+                            // Get the first available book name
+                            const firstWord = querySnapshot.docs[0].data();
+                            const defaultBook = firstWord.book_name;
+
+                            if (defaultBook) {
+                                // Update user with this default book
+                                const updates = {
+                                    active_books: [defaultBook],
+                                    book_name: defaultBook,
+                                    book_settings: {
+                                        [defaultBook]: {
+                                            test_mode: 'word_typing',
+                                            words_per_session: 10
+                                        }
+                                    }
+                                };
+
+                                await updateDoc(userRef, updates);
+                                userData = { ...userData, ...updates };
+                            }
+                        }
+                    }
+
+                    setSettings(userData);
                 }
 
                 // Fetch History
@@ -38,30 +74,13 @@ export default function StudentDashboard() {
                 historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
                 setHistory(historyData);
 
-                const today = new Date();
-                const completedToday = historyData.some(h => {
-                    const historyDate = new Date(h.date);
-                    return isSameDay(historyDate, today);
-                });
-                setTodayCompleted(completedToday);
-
             } catch (err) {
                 console.error("Error fetching dashboard data:", err);
             }
         };
 
         fetchDashboard();
-    }, []);
-
-    useEffect(() => {
-        if (settings) {
-            const books = settings.active_books || (settings.book_name ? [settings.book_name] : []);
-            if (books.length > 0 && !selectedBook) {
-                setSelectedBook(books[0]);
-            }
-        }
-    }, [settings, selectedBook]);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [userId]);
 
     const handleLogout = () => {
         auth.signOut();
@@ -76,7 +95,7 @@ export default function StudentDashboard() {
         return studyDays.includes(dayOfWeek);
     };
 
-    const getWordRangeForDate = (date, bookName = selectedBook) => {
+    const getWordRangeForDate = (date, bookName) => {
         if (!settings || !bookName) return null;
 
         const today = new Date();
@@ -104,12 +123,23 @@ export default function StudentDashboard() {
             return defaultWordsPerSession;
         };
 
+        // Check if there is a history record for this date and book
+        const historyRecord = history.find(h => {
+            const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
+            const isSameDate = isSameDay(recordDate, targetDate);
+            const historyBook = h.book_name || settings.book_name;
+            return isSameDate && historyBook === bookName;
+        });
+
+        if (historyRecord && historyRecord.range_start && historyRecord.range_end) {
+            return { start: historyRecord.range_start, end: historyRecord.range_end };
+        }
+
         // Helper to check if a specific day was completed for THIS book
         const isDayCompleted = (dayToCheck) => {
             return history.some(h => {
                 const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
                 const isSameDate = isSameDay(recordDate, dayToCheck);
-                // Legacy compatibility: if h.book_name is missing, assume it matches settings.book_name
                 const historyBook = h.book_name || settings.book_name;
                 return isSameDate && historyBook === bookName;
             });
@@ -120,117 +150,100 @@ export default function StudentDashboard() {
         let accumulatedWords = 0;
 
         if (targetDate < today) {
-            const daysInRange = eachDayOfInterval({
-                start: targetDate,
-                end: new Date(today.getTime() - 24 * 60 * 60 * 1000)
-            });
-
-            for (const day of daysInRange) {
-                if (isDayCompleted(day)) {
-                    const dayOfWeek = getDay(day).toString();
-                    const wordsForThisDay = getWordsForDay(dayOfWeek);
-                    accumulatedWords -= wordsForThisDay;
-                }
+            // Past Logic: Calculate backwards from currentIndex
+            let d = new Date(today);
+            // If today is NOT completed, currentIndex reflects Yesterday's end. So we start from Yesterday.
+            if (!todayCompleted) {
+                d.setDate(d.getDate() - 1);
             }
+
+            // Loop backwards until we reach the day AFTER targetDate
+            while (d > targetDate) {
+                if (isStudyDay(d)) {
+                    accumulatedWords -= getWordsForDay(getDay(d).toString());
+                }
+                d.setDate(d.getDate() - 1);
+            }
+
         } else if (targetDate > today) {
-            if (!todayCompleted && isStudyDay(today)) {
-                const todayOfWeek = getDay(today).toString();
-                const wordsForToday = getWordsForDay(todayOfWeek);
-                accumulatedWords += wordsForToday;
+            // Future Logic: Calculate forwards from currentIndex
+            let d = new Date(today);
+            // If today is completed, Tomorrow is the next session.
+            if (todayCompleted) {
+                d.setDate(d.getDate() + 1);
             }
 
-            if (targetDate > new Date(today.getTime() + 24 * 60 * 60 * 1000)) {
-                const interimDays = eachDayOfInterval({
-                    start: new Date(today.getTime() + 24 * 60 * 60 * 1000),
-                    end: new Date(targetDate.getTime() - 24 * 60 * 60 * 1000)
-                });
-
-                for (const day of interimDays) {
-                    if (isStudyDay(day)) {
-                        const dayOfWeek = getDay(day).toString();
-                        const wordsForThisDay = getWordsForDay(dayOfWeek);
-                        accumulatedWords += wordsForThisDay;
-                    }
+            while (d < targetDate) {
+                if (isStudyDay(d)) {
+                    accumulatedWords += getWordsForDay(getDay(d).toString());
                 }
+                d.setDate(d.getDate() + 1);
             }
-        } else {
-            // Target is today
-            accumulatedWords = 0;
         }
 
         const targetDayOfWeek = getDay(targetDate).toString();
         const wordsForTargetDay = getWordsForDay(targetDayOfWeek);
 
-        const baseWordNumber = currentIndex;
-        const startWordNumber = baseWordNumber + accumulatedWords;
-        const endWordNumber = startWordNumber + wordsForTargetDay;
+        let startWordNumber, endWordNumber;
+
+        if (targetDate < today) {
+            const targetEndIndex = currentIndex + accumulatedWords;
+            startWordNumber = targetEndIndex - wordsForTargetDay + 1;
+            endWordNumber = startWordNumber + wordsForTargetDay;
+        } else {
+            // Future or Today
+            const baseWordNumber = currentIndex;
+            startWordNumber = baseWordNumber + accumulatedWords + 1;
+            endWordNumber = startWordNumber + wordsForTargetDay;
+        }
+
+        if (startWordNumber <= 0) return null;
 
         return { start: startWordNumber, end: endWordNumber };
     };
 
-    const handleStartStudy = (date) => {
-        const wordRange = getWordRangeForDate(date);
-        if (wordRange) {
+    const handleStartStudy = (date, bookName, range) => {
+        if (range) {
             navigate('/student/study', {
                 state: {
-                    studyStartIndex: wordRange.start,
-                    studyEndIndex: wordRange.end,
+                    studyStartIndex: range.start,
+                    studyEndIndex: range.end,
                     scheduledDate: date.toISOString(),
-                    bookName: selectedBook
+                    bookName: bookName
                 }
             });
         } else {
             navigate('/student/study', {
                 state: {
-                    scheduledDate: date.toISOString()
+                    scheduledDate: date.toISOString(),
+                    bookName: bookName
                 }
             });
         }
     };
 
-    const handlePrevMonth = () => {
-        setCurrentMonth(prev => subMonths(prev, 1));
+    const handlePrevWeek = () => {
+        setCurrentWeekStart(prev => subWeeks(prev, 1));
     };
 
-    const handleNextMonth = () => {
-        setCurrentMonth(prev => addMonths(prev, 1));
+    const handleNextWeek = () => {
+        setCurrentWeekStart(prev => addWeeks(prev, 1));
     };
 
-    const monthStart = startOfMonth(currentMonth);
-    const daysInMonth = eachDayOfInterval({
-        start: monthStart,
-        end: endOfMonth(currentMonth)
-    });
+    // Generate days for the table
+    const weekDays = [];
+    let d = new Date(currentWeekStart);
+    for (let i = 0; i < 7; i++) {
+        weekDays.push(new Date(d));
+        d.setDate(d.getDate() + 1);
+    }
 
-    const getDayStatus = (date) => {
-        const isStudyDayFlag = isStudyDay(date);
-        const studied = history.some(h => {
-            const historyDate = new Date(h.date);
-            const scheduledDate = h.scheduled_date ? new Date(h.scheduled_date) : null;
-            return isSameDay(historyDate, date) || (scheduledDate && isSameDay(scheduledDate, date));
-        });
-        const isTodayFlag = isToday(date);
-        const isPast = date < new Date().setHours(0, 0, 0, 0);
-        const wordRange = getWordRangeForDate(date);
+    const studyDays = weekDays.filter(day => isStudyDay(day));
+    const activeBooks = (settings?.active_books || (settings?.book_name ? [settings.book_name] : []))
+        .filter(book => book !== '기본');
 
-        if (studied) {
-            return { bg: 'bg-green-100', text: 'text-green-700', border: 'border-green-300', clickable: true, showInfo: true, wordRange, isToday: isTodayFlag };
-        }
-        if (isTodayFlag && isStudyDayFlag) {
-            return { bg: 'bg-indigo-100', text: 'text-indigo-900', border: 'border-indigo-500', clickable: true, showInfo: true, isToday: true, wordRange };
-        }
-        if (isTodayFlag && !isStudyDayFlag) {
-            return { bg: 'bg-white', text: 'text-indigo-900', border: 'border-indigo-600 ring-2 ring-indigo-100', clickable: false, showInfo: false, isToday: true, wordRange: null };
-        }
-        if (isStudyDayFlag && isPast) {
-            return { bg: 'bg-red-50', text: 'text-red-600', border: 'border-red-200', clickable: true, showInfo: true, wordRange, isToday: isTodayFlag };
-        }
-        if (isStudyDayFlag) {
-            return { bg: 'bg-blue-50', text: 'text-blue-600', border: 'border-blue-200', clickable: true, showInfo: true, wordRange, isToday: isTodayFlag };
-        }
-        // Non-study days are NOT clickable
-        return { bg: 'bg-gray-50', text: 'text-gray-400', border: 'border-gray-100', clickable: false, showInfo: false, wordRange: null, isToday: isTodayFlag };
-    };
+    // Calculate reference date (Thursday) for correct Month/Week display
+    const referenceDate = addDays(currentWeekStart, 4);
 
     return (
         <div className="min-h-screen bg-gray-50">
@@ -257,135 +270,128 @@ export default function StudentDashboard() {
                 </button>
             </div>
 
-            <main className="max-w-4xl px-4 py-8 mx-auto space-y-8">
-                <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
-                    {/* Book Tabs */}
-                    {settings?.active_books && settings.active_books.length > 0 && (
-                        <div className="flex space-x-2 mb-6 overflow-x-auto pb-2">
-                            {settings.active_books.map(book => (
-                                <button
-                                    key={book}
-                                    onClick={() => setSelectedBook(book)}
-                                    className={`px-4 py-2 rounded-lg whitespace-nowrap transition-all font-medium ${selectedBook === book
-                                        ? 'bg-indigo-600 text-white shadow-md'
-                                        : 'bg-gray-100 text-gray-600 hover:bg-gray-200'
-                                        }`}
-                                >
-                                    {book}
-                                </button>
-                            ))}
-                        </div>
-                    )}
-
-                    <div className="flex items-center justify-between mb-4">
-                        <div>
-                            <h2 className="text-lg font-semibold text-gray-800">학습 진도</h2>
-                            <p className="text-sm text-gray-500">단어장: {selectedBook || settings?.book_name || '기본'}</p>
-                            <p className="text-sm text-gray-500">
-                                현재 단어 번호: {
-                                    settings?.book_progress?.[selectedBook] !== undefined
-                                        ? settings.book_progress[selectedBook]
-                                        : (selectedBook === settings?.book_name ? settings?.current_word_index : 0) || 0
-                                }
-                            </p>
-                        </div>
-                        {todayCompleted && (
-                            <div className="flex items-center space-x-2 px-4 py-2 bg-green-100 text-green-700 rounded-lg">
-                                <CheckCircle className="w-5 h-5" />
-                                <span className="font-medium">오늘 학습 완료</span>
-                            </div>
-                        )}
-                    </div>
-                </div>
-
-                <div className="p-6 bg-white rounded-2xl shadow-sm border border-gray-100">
-                    <div className="flex items-center justify-between mb-6">
+            <main className="max-w-7xl px-4 py-8 mx-auto space-y-8">
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
+                    <div className="p-6 border-b border-gray-100 flex items-center justify-between">
                         <div className="flex items-center space-x-4">
-                            <button onClick={handlePrevMonth} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                            <button onClick={handlePrevWeek} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                                 <ChevronLeft className="w-5 h-5 text-gray-600" />
                             </button>
-                            <h2 className="text-lg font-semibold text-gray-800">{format(currentMonth, 'yyyy년 M월')}</h2>
-                            <button onClick={handleNextMonth} className="p-1 hover:bg-gray-100 rounded-full transition-colors">
+                            <h2 className="text-xl font-bold text-gray-800">
+                                {format(referenceDate, 'yyyy년 M월')} {getWeekOfMonth(referenceDate, { weekStartsOn: 0 })}주차 학습 계획
+                            </h2>
+                            <button onClick={handleNextWeek} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
                                 <ChevronRight className="w-5 h-5 text-gray-600" />
                             </button>
                         </div>
-                        <div className="flex items-center space-x-4 text-xs">
-                            <div className="flex items-center space-x-1">
-                                <div className="w-3 h-3 bg-green-100 border border-green-300 rounded"></div>
-                                <span className="text-gray-600">완료</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                                <div className="w-3 h-3 bg-indigo-100 border border-indigo-300 rounded"></div>
-                                <span className="text-gray-600">오늘</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                                <div className="w-3 h-3 bg-red-50 border border-red-200 rounded"></div>
-                                <span className="text-gray-600">미완료</span>
-                            </div>
-                            <div className="flex items-center space-x-1">
-                                <div className="w-3 h-3 bg-blue-50 border border-blue-200 rounded"></div>
-                                <span className="text-gray-600">예정</span>
-                            </div>
+                        <div className="flex items-center space-x-2 text-sm text-gray-500">
+                            <span className="flex items-center"><div className="w-3 h-3 bg-green-500 rounded-full mr-1"></div>완료</span>
+                            <span className="flex items-center"><div className="w-3 h-3 bg-red-500 rounded-full mr-1"></div>미완료</span>
+                            <span className="flex items-center"><div className="w-3 h-3 bg-blue-400 rounded-full mr-1"></div>예정</span>
                         </div>
                     </div>
 
-                    <div className="grid grid-cols-7 gap-2">
-                        {['일', '월', '화', '수', '목', '금', '토'].map(day => (
-                            <div key={day} className="text-center text-xs font-medium text-gray-400 py-2">
-                                {day}
-                            </div>
-                        ))}
-                        {Array.from({ length: getDay(monthStart) }).map((_, i) => (
-                            <div key={`empty-${i}`} className="min-h-[80px]"></div>
-                        ))}
-                        {daysInMonth.map((date, i) => {
-                            const status = getDayStatus(date);
-                            const studied = history.some(h => isSameDay(new Date(h.date), date));
+                    <div className="overflow-x-auto">
+                        <table className="w-full min-w-[800px]">
+                            <thead>
+                                <tr className="bg-gray-50">
+                                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 w-48 sticky left-0 bg-gray-50 z-10">교재명</th>
+                                    {studyDays.map((date, i) => (
+                                        <th key={i} className="px-6 py-4 text-center text-sm font-semibold text-gray-600 border-l border-gray-200">
+                                            <div className="flex flex-col items-center">
+                                                <span>{format(date, 'M/d')} ({['일', '월', '화', '수', '목', '금', '토'][getDay(date)]})</span>
+                                            </div>
+                                        </th>
+                                    ))}
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {activeBooks.map((book) => (
+                                    <tr key={book} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-6 py-6 text-sm font-bold text-gray-800 sticky left-0 bg-white z-10 border-r border-gray-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                            {book}
+                                        </td>
+                                        {studyDays.map((date, i) => {
+                                            const isDone = history.some(h => {
+                                                const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
+                                                const isSameDate = isSameDay(recordDate, date);
+                                                const historyBook = h.book_name || settings.book_name;
+                                                return isSameDate && historyBook === book;
+                                            });
 
-                            return (
-                                <button
-                                    key={i}
-                                    onClick={() => status.clickable && handleStartStudy(date)}
-                                    disabled={!status.clickable}
-                                    className={`
-                                            min-h-[80px] p-2 flex flex-col items-center justify-start rounded-lg border
-                                            ${status.bg} ${status.text} ${status.border}
-                                            ${status.clickable ? 'cursor-pointer hover:shadow-lg hover:scale-105 transition-all' : 'cursor-not-allowed opacity-60'}
-                                            ${status.isToday ? 'ring-4 ring-indigo-300 shadow-xl' : ''}
-                                        `}
-                                >
-                                    <div className={`font-semibold mb-1 ${status.isToday ? 'text-lg' : ''}`}>
-                                        {format(date, 'd')}
-                                        {status.isToday && <div className="text-[8px] font-normal">오늘</div>}
-                                    </div>
-                                    {status.showInfo && status.wordRange && (
-                                        <div className="text-[10px] text-center leading-tight">
-                                            <div className="font-medium">{selectedBook || settings?.book_name || '기본'}</div>
-                                            <div>#{status.wordRange.start} - #{status.wordRange.end - 1}</div>
-                                        </div>
-                                    )}
-                                    {status.clickable && !studied && (
-                                        <div className="mt-auto">
-                                            <BookOpen className={`w-4 h-4 ${status.isToday ? 'animate-pulse' : ''}`} />
-                                        </div>
-                                    )}
-                                </button>
-                            );
-                        })}
+                                            const range = getWordRangeForDate(date, book);
+                                            const isTodayFlag = isSameDay(date, new Date());
+                                            const isPast = date < new Date().setHours(0, 0, 0, 0);
+
+                                            return (
+                                                <td key={i} className="px-4 py-4 border-l border-gray-100 align-top">
+                                                    <div className="flex flex-col items-center space-y-3">
+                                                        {range && (
+                                                            <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                                                단어 {range.start} ~ {range.end - 1}
+                                                            </span>
+                                                        )}
+
+                                                        {isDone ? (
+                                                            <button
+                                                                onClick={() => handleStartStudy(date, book, range)}
+                                                                className="flex flex-col items-center w-full hover:bg-gray-50 rounded-lg p-1 transition-colors group"
+                                                            >
+                                                                <span className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs font-medium mb-2 group-hover:bg-green-200 group-hover:text-green-800 transition-colors">완료됨 (재학습)</span>
+                                                                <div className="text-xs text-gray-400">
+                                                                    {history.find(h => {
+                                                                        const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
+                                                                        const historyBook = h.book_name || settings.book_name;
+                                                                        return isSameDay(recordDate, date) && historyBook === book;
+                                                                    })?.date.split('T')[0]}
+                                                                </div>
+                                                            </button>
+                                                        ) : (
+                                                            range ? (
+                                                                <div className="flex flex-col items-center w-full">
+                                                                    <div className={`text-xs font-medium mb-2 ${isPast ? 'text-red-500' : 'text-blue-500'}`}>
+                                                                        {isPast ? '미완료' : '학습 예정'}
+                                                                    </div>
+                                                                    <button
+                                                                        onClick={() => handleStartStudy(date, book, range)}
+                                                                        className={`
+                                                                            w-full py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center space-x-1
+                                                                            ${isPast
+                                                                                ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
+                                                                                : (isTodayFlag
+                                                                                    ? 'bg-indigo-600 text-white hover:bg-indigo-700 shadow-md animate-pulse'
+                                                                                    : 'bg-blue-100 text-blue-600 hover:bg-blue-200')
+                                                                            }
+                                                                        `}
+                                                                    >
+                                                                        {isPast || isTodayFlag ? '학습하기' : '대기'}
+                                                                    </button>
+                                                                </div>
+                                                            ) : (
+                                                                <div className="text-xs text-gray-300 mt-4">-</div>
+                                                            )
+                                                        )}
+                                                    </div>
+                                                </td>
+                                            );
+                                        })}
+                                    </tr>
+                                ))}
+                                {activeBooks.length === 0 && (
+                                    <tr>
+                                        <td colSpan={studyDays.length + 1} className="px-6 py-12 text-center text-gray-500">
+                                            등록된 학습 교재가 없습니다.
+                                        </td>
+                                    </tr>
+                                )}
+                            </tbody>
+                        </table>
                     </div>
                 </div>
 
                 <div className="p-4 bg-blue-50 rounded-xl border border-blue-200">
                     <p className="text-sm text-blue-800">
-                        <span className="font-semibold">학습 요일:</span> {
-                            settings?.study_days?.split(',').map(d => {
-                                const days = ['일', '월', '화', '수', '목', '금', '토'];
-                                return days[parseInt(d)];
-                            }).join(', ')
-                        }
-                    </p>
-                    <p className="text-xs text-blue-600 mt-1">
-                        달력에서 학습 가능한 날짜를 클릭하여 학습을 시작하세요.
+                        <span className="font-semibold">학습 안내:</span> 각 교재별로 지정된 요일에 학습을 진행하세요. 지난 학습도 언제든지 다시 할 수 있습니다.
                     </p>
                 </div>
             </main>

@@ -10,6 +10,8 @@ export default function AdminDashboard() {
     const [classes, setClasses] = useState([]);
     const [selectedClass, setSelectedClass] = useState('all');
     const [selectedStudent, setSelectedStudent] = useState(null);
+    const [selectedResult, setSelectedResult] = useState(null);
+
     const [studentResults, setStudentResults] = useState([]);
     const navigate = useNavigate();
 
@@ -92,8 +94,17 @@ export default function AdminDashboard() {
         }
     };
 
+    const handleResultClick = (result) => {
+        setSelectedResult(result);
+    };
+
+    const closeResultModal = () => {
+        setSelectedResult(null);
+    };
+
     return (
         <div className="min-h-screen bg-gray-100 p-8">
+            {/* ... (existing header) */}
             <div className="max-w-6xl mx-auto space-y-8">
                 <header className="flex items-center justify-between mb-8">
                     <div className="flex items-center space-x-4">
@@ -207,7 +218,11 @@ export default function AdminDashboard() {
                                         </thead>
                                         <tbody className="divide-y divide-gray-50">
                                             {studentResults.map(result => (
-                                                <tr key={result.id}>
+                                                <tr
+                                                    key={result.id}
+                                                    onClick={() => handleResultClick(result)}
+                                                    className="cursor-pointer hover:bg-gray-50 transition-colors"
+                                                >
                                                     <td className="py-3 text-gray-500">
                                                         {result.scheduled_date ? new Date(result.scheduled_date).toLocaleDateString('ko-KR') : '-'}
                                                     </td>
@@ -267,6 +282,95 @@ export default function AdminDashboard() {
                     </div>
                 </div>
             </div>
+
+            {/* Result Detail Modal */}
+            {selectedResult && (
+                <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-xl w-full max-w-3xl max-h-[90vh] overflow-hidden flex flex-col">
+                        <div className="p-6 border-b border-gray-100 flex justify-between items-center bg-gray-50">
+                            <div>
+                                <h2 className="text-xl font-bold text-gray-900">시험 상세 결과</h2>
+                                <p className="text-sm text-gray-500 mt-1">
+                                    {new Date(selectedResult.date).toLocaleString('ko-KR')} |
+                                    {selectedResult.test_type === 'new_words' ? ' 기본 단어' : ' 복습 단어'} |
+                                    범위: {selectedResult.range_start} ~ {selectedResult.range_end}
+                                </p>
+                            </div>
+                            <button onClick={closeResultModal} className="text-gray-400 hover:text-gray-600">
+                                <span className="text-2xl">×</span>
+                            </button>
+                        </div>
+
+                        <div className="p-6 overflow-y-auto flex-1">
+                            <div className="grid grid-cols-3 gap-4 mb-6">
+                                <div className="bg-blue-50 p-4 rounded-xl text-center">
+                                    <p className="text-sm text-blue-600 font-medium mb-1">최종 점수</p>
+                                    <p className="text-2xl font-bold text-blue-700">{selectedResult.score}점</p>
+                                </div>
+                                <div className="bg-purple-50 p-4 rounded-xl text-center">
+                                    <p className="text-sm text-purple-600 font-medium mb-1">첫 시도 점수</p>
+                                    <p className="text-2xl font-bold text-purple-700">{selectedResult.first_attempt_score || selectedResult.score}점</p>
+                                </div>
+                                <div className="bg-gray-50 p-4 rounded-xl text-center">
+                                    <p className="text-sm text-gray-600 font-medium mb-1">재시험 횟수</p>
+                                    <p className="text-2xl font-bold text-gray-700">{selectedResult.retry_count || 0}회</p>
+                                </div>
+                            </div>
+
+                            <h3 className="font-bold text-gray-800 mb-4">문항별 상세 내역</h3>
+                            <div className="border rounded-xl overflow-hidden">
+                                <table className="w-full text-left text-sm">
+                                    <thead className="bg-gray-50">
+                                        <tr>
+                                            <th className="px-4 py-3 font-medium text-gray-600">번호</th>
+                                            <th className="px-4 py-3 font-medium text-gray-600">단어 (영어)</th>
+                                            <th className="px-4 py-3 font-medium text-gray-600">뜻 (한글)</th>
+                                            <th className="px-4 py-3 font-medium text-gray-600">제출한 답</th>
+                                            <th className="px-4 py-3 font-medium text-gray-600 text-center">결과</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-gray-100">
+                                        {selectedResult.details ? (
+                                            JSON.parse(selectedResult.details).map((detail, index) => (
+                                                <tr key={index} className="hover:bg-gray-50">
+                                                    <td className="px-4 py-3 text-gray-500">{index + 1}</td>
+                                                    <td className="px-4 py-3 font-medium">{detail.word?.english}</td>
+                                                    <td className="px-4 py-3 text-gray-600">{detail.word?.korean}</td>
+                                                    <td className="px-4 py-3">
+                                                        <span className={detail.correct ? 'text-green-600' : 'text-red-500 font-medium'}>
+                                                            {detail.userAnswer || '-'}
+                                                        </span>
+                                                    </td>
+                                                    <td className="px-4 py-3 text-center">
+                                                        {detail.correct ? (
+                                                            <span className="inline-block px-2 py-1 bg-green-100 text-green-700 text-xs rounded-full font-bold">정답</span>
+                                                        ) : (
+                                                            <span className="inline-block px-2 py-1 bg-red-100 text-red-700 text-xs rounded-full font-bold">오답</span>
+                                                        )}
+                                                    </td>
+                                                </tr>
+                                            ))
+                                        ) : (
+                                            <tr>
+                                                <td colSpan="5" className="px-4 py-8 text-center text-gray-400">상세 내역 정보가 없습니다.</td>
+                                            </tr>
+                                        )}
+                                    </tbody>
+                                </table>
+                            </div>
+                        </div>
+
+                        <div className="p-4 border-t border-gray-100 bg-gray-50 flex justify-end">
+                            <button
+                                onClick={closeResultModal}
+                                className="px-6 py-2 bg-gray-800 text-white rounded-lg hover:bg-gray-900 transition-colors font-medium"
+                            >
+                                닫기
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     );
 }

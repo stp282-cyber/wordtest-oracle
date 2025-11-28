@@ -90,11 +90,11 @@ export default function Login() {
             <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow-xl">
                 <div className="flex flex-col items-center mb-2">
                     <div className="mb-6 text-center transform hover:scale-105 transition-transform duration-300">
-                        <h1 className="text-4xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 tracking-tight mb-2">
-                            이스턴 영어 공부방
+                        <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 tracking-tighter mb-2 drop-shadow-sm">
+                            Eastern WordTest
                         </h1>
-                        <h2 className="text-xl font-bold text-gray-700">
-                            단어 학습장
+                        <h2 className="text-xl font-bold text-gray-600 tracking-wide">
+                            이스턴 영어 공부방
                         </h2>
                     </div>
                     <p className="text-gray-500 text-sm">

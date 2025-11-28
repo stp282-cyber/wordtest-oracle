@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowRight, Check, RotateCcw, BookOpen } from 'lucide-react';
+import { ArrowRight, Check, RotateCcw, BookOpen, Trophy } from 'lucide-react';
 import { db } from '../firebase';
 import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import confetti from 'canvas-confetti';
 
 const isSentence = (text) => text && text.trim().split(/\s+/).length >= 3;
 
@@ -40,6 +41,10 @@ export default function TestInterface() {
 
     const [scrambledWords, setScrambledWords] = useState([]);
     const [selectedWords, setSelectedWords] = useState([]);
+
+    // Refs for preventing double submission and accumulating answers
+    const isSubmitting = React.useRef(false);
+    const sessionAnswersRef = React.useRef({});
 
     useEffect(() => {
         const fetchTest = async () => {
@@ -135,17 +140,28 @@ export default function TestInterface() {
                     return;
                 }
 
+                // Ensure review words do not overlap with new words
+                const newWordIds = new Set(newWordsData.map(w => w.id));
+                const filteredReviewWords = reviewWordsData.filter(w => !newWordIds.has(w.id));
+
                 setNewWords(newWordsData);
-                setReviewWords(reviewWordsData);
+                setReviewWords(filteredReviewWords);
 
                 setRangeStart(startWordNumber);
                 setRangeEnd(endWordNumber);
 
                 // Determine initial test type
+                let mode = 'word_typing'; // Default
+                if (bookName === '기본') {
+                    mode = 'word_typing';
+                } else if (settings.book_settings?.[bookName]?.test_mode) {
+                    mode = settings.book_settings[bookName].test_mode;
+                }
+
                 if (newWordsData.length > 0) {
                     setInitialTestType('new_words');
                     setCurrentTestWords(shuffleArray(newWordsData));
-                    setTestMode('new');
+                    setTestMode(mode === 'sentence_click' ? 'sentence_click' : (mode === 'sentence_type' ? 'sentence_type' : 'new'));
                 } else if (reviewWordsData.length > 0) {
                     setInitialTestType('review_words');
                     setShowWrongWordsReview(true);
@@ -185,7 +201,8 @@ export default function TestInterface() {
 
     useEffect(() => {
         const word = currentTestWords[currentIndex];
-        if (word && isSentence(word.english)) {
+        // Only scramble if we are in sentence_click mode
+        if (word && testMode === 'sentence_click' && isSentence(word.english)) {
             const words = word.english.trim().split(/\s+/);
             const shuffled = [...words].map((w, i) => ({ text: w, id: i }));
             for (let i = shuffled.length - 1; i > 0; i--) {
@@ -194,8 +211,11 @@ export default function TestInterface() {
             }
             setScrambledWords(shuffled);
             setSelectedWords([]);
+        } else {
+            setScrambledWords([]);
+            setSelectedWords([]);
         }
-    }, [currentIndex, currentTestWords]);
+    }, [currentIndex, currentTestWords, testMode]);
 
     const handleSentenceClick = (wordObj) => {
         setScrambledWords(prev => prev.filter(w => w.id !== wordObj.id));
@@ -225,6 +245,8 @@ export default function TestInterface() {
 
 
     const handleAnswer = (answer) => {
+        if (isSubmitting.current || allTestsComplete) return;
+
         const currentWord = currentTestWords[currentIndex];
         const correctAnswer = testMode === 'review' ? currentWord.korean : currentWord.english;
 
@@ -265,8 +287,10 @@ export default function TestInterface() {
         if (wrong.length > 0) {
             setWrongWords(wrong);
             setShowWrongWordsReview(true);
+            // Accumulate answers before showing review
+            sessionAnswersRef.current = { ...sessionAnswersRef.current, ...finalAnswers };
         } else {
-            moveToNextPhase();
+            moveToNextPhase(finalAnswers);
         }
     };
 
@@ -287,12 +311,17 @@ export default function TestInterface() {
         }
     };
 
-    const moveToNextPhase = () => {
-        if (testMode === 'new' && !retryMode) {
+    const moveToNextPhase = (currentPhaseAnswers = {}) => {
+        // Accumulate answers
+        sessionAnswersRef.current = { ...sessionAnswersRef.current, ...currentPhaseAnswers };
+
+        if ((testMode === 'new' || testMode === 'word_typing' || testMode === 'sentence_click' || testMode === 'sentence_type') && !retryMode) {
             if (reviewWords.length > 0) {
                 setShowWrongWordsReview(true);
                 setWrongWords(reviewWords);
                 setTestMode('review-study');
+                // Clear current answers for the next phase, but they are already saved in sessionAnswersRef
+                setAnswers({});
             } else {
                 submitAndFinish();
             }
@@ -300,11 +329,12 @@ export default function TestInterface() {
             submitAndFinish();
         } else if (retryMode) {
             setRetryMode(false);
-            if (testMode === 'new') {
+            if (testMode === 'new' || testMode === 'word_typing' || testMode === 'sentence_click' || testMode === 'sentence_type') {
                 if (reviewWords.length > 0) {
                     setShowWrongWordsReview(true);
                     setWrongWords(reviewWords);
                     setTestMode('review-study');
+                    setAnswers({});
                 } else {
                     submitAndFinish();
                 }
@@ -315,10 +345,41 @@ export default function TestInterface() {
     };
 
     const submitAndFinish = async () => {
-        const totalWords = newWords.length + reviewWords.length;
-        const allAnswers = Object.values(answers);
-        const correctCount = allAnswers.filter((a) => a.correct).length;
+        if (isSubmitting.current) return;
+        isSubmitting.current = true;
+
+        // Use accumulated answers
+        const finalAllAnswers = sessionAnswersRef.current;
+        const allAnswersValues = Object.values(finalAllAnswers);
+        const correctCount = allAnswersValues.filter((a) => a.correct).length;
+
+        // Calculate total unique words intended to be tested
+        const uniqueWordIds = new Set([...newWords.map(w => w.id), ...reviewWords.map(w => w.id)]);
+        const totalWords = uniqueWordIds.size;
+
         const score = totalWords > 0 ? Math.round((correctCount / totalWords) * 100) : 0;
+
+        // Calculate separate scores
+        const newWordIds = new Set(newWords.map(w => w.id));
+        const reviewWordIds = new Set(reviewWords.map(w => w.id));
+
+        let newCorrect = 0;
+        let newTotal = 0;
+        let reviewCorrect = 0;
+        let reviewTotal = 0;
+
+        allAnswersValues.forEach(ans => {
+            if (newWordIds.has(ans.word.id)) {
+                newTotal++;
+                if (ans.correct) newCorrect++;
+            } else if (reviewWordIds.has(ans.word.id)) {
+                reviewTotal++;
+                if (ans.correct) reviewCorrect++;
+            }
+        });
+
+        const newWordsScore = newTotal > 0 ? Math.round((newCorrect / newTotal) * 100) : 0;
+        const reviewWordsScore = reviewTotal > 0 ? Math.round((reviewCorrect / reviewTotal) * 100) : 0;
 
         const userId = localStorage.getItem('userId');
 
@@ -327,7 +388,13 @@ export default function TestInterface() {
             await addDoc(collection(db, 'test_results'), {
                 user_id: userId,
                 score: score,
-                details: JSON.stringify(Object.entries(answers).map(([id, val]) => ({ word_id: id, ...val }))),
+                new_words_score: newWordsScore,
+                new_words_total: newTotal,
+                new_words_correct: newCorrect,
+                review_words_score: reviewWordsScore,
+                review_words_total: reviewTotal,
+                review_words_correct: reviewCorrect,
+                details: JSON.stringify(Object.entries(finalAllAnswers).map(([id, val]) => ({ word_id: id, ...val }))),
                 range_start: rangeStart,
                 range_end: rangeEnd,
                 first_attempt_score: firstAttemptScore || score,
@@ -339,7 +406,6 @@ export default function TestInterface() {
                 book_name: currentBookName
             });
 
-            // Update User Progress
             // Update User Progress
             const userRef = doc(db, 'users', userId);
             const userSnap = await getDoc(userRef);
@@ -392,32 +458,51 @@ export default function TestInterface() {
             }
 
             setAllTestsComplete(true);
+            triggerConfetti(); // Celebration!
         } catch (err) {
             console.error("Error submitting results:", err);
             alert("결과 저장 중 오류가 발생했습니다.");
+            isSubmitting.current = false;
         }
     };
 
-    if (loading) return <div className="p-8 text-center">시험지 생성 중...</div>;
+    const triggerConfetti = () => {
+        const duration = 3000;
+        const animationEnd = Date.now() + duration;
+        const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+        const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+        const interval = setInterval(function () {
+            const timeLeft = animationEnd - Date.now();
+            if (timeLeft <= 0) return clearInterval(interval);
+            const particleCount = 50 * (timeLeft / duration);
+            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+        }, 250);
+    };
+
+    if (loading) return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-purple-900 text-white">시험지 생성 중...</div>;
 
     if (allTestsComplete) {
-        const totalWords = newWords.length + reviewWords.length;
-        const correctCount = Object.values(answers).filter((a) => a.correct).length;
+        const uniqueWordIds = new Set([...newWords.map(w => w.id), ...reviewWords.map(w => w.id)]);
+        const totalWords = uniqueWordIds.size;
+        const finalAllAnswers = sessionAnswersRef.current;
+        const correctCount = Object.values(finalAllAnswers).filter((a) => a.correct).length;
         const score = totalWords > 0 ? Math.round((correctCount / totalWords) * 100) : 0;
         return (
-            <div className="min-h-screen flex flex-col items-center justify-center bg-gray-50 p-4">
-                <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full text-center space-y-6">
-                    <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto">
-                        <Check className="w-10 h-10 text-green-600" />
+            <div className="min-h-screen flex flex-col items-center justify-center bg-gradient-to-br from-indigo-900 to-purple-900 p-4 animate-fade-in">
+                <div className="bg-white/10 backdrop-blur-xl border border-white/20 p-8 rounded-3xl shadow-2xl max-w-md w-full text-center space-y-6 transform scale-100 animate-bounce-in">
+                    <div className="w-20 h-20 bg-green-500 rounded-full flex items-center justify-center mx-auto shadow-lg shadow-green-500/50">
+                        <Trophy className="w-10 h-10 text-white animate-bounce" />
                     </div>
-                    <h1 className="text-3xl font-bold text-gray-800">모든 학습 완료!</h1>
-                    <div className="text-6xl font-black text-indigo-600">
-                        {score}<span className="text-2xl text-gray-400 font-medium">점</span>
+                    <h1 className="text-3xl font-bold text-white">모든 학습 완료!</h1>
+                    <div className="text-6xl font-black text-yellow-400 drop-shadow-lg">
+                        {score}<span className="text-2xl text-indigo-200 font-medium">점</span>
                     </div>
-                    <p className="text-gray-500">
-                        {totalWords}문제 중 {correctCount}개를 맞췄습니다.
+                    <p className="text-indigo-200">
+                        {totalWords}문제 중 <span className="text-white font-bold">{correctCount}</span>개를 맞췄습니다.
                     </p>
-                    <button onClick={() => navigate('/student')} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition-all">
+                    <button onClick={() => navigate('/student')} className="w-full py-4 bg-gradient-to-r from-indigo-500 to-purple-500 text-white rounded-xl font-bold hover:from-indigo-600 hover:to-purple-600 transition-all shadow-lg border border-white/20">
                         대시보드로 돌아가기
                     </button>
                 </div>
@@ -427,23 +512,23 @@ export default function TestInterface() {
 
     if (showWrongWordsReview) {
         const isReviewStudy = testMode === 'review-study';
-        const headerBgColor = isReviewStudy ? 'bg-blue-600' : 'bg-red-600';
+        const headerBgColor = isReviewStudy ? 'bg-blue-600/20' : 'bg-red-600/20';
         const headerTextColor = isReviewStudy ? 'text-blue-200' : 'text-red-200';
-        const cardBgColor = isReviewStudy ? 'bg-blue-50' : 'bg-red-50';
-        const cardBorderColor = isReviewStudy ? 'border-blue-200' : 'border-red-200';
-        const badgeBgColor = isReviewStudy ? 'bg-blue-100' : 'bg-red-100';
-        const badgeTextColor = isReviewStudy ? 'text-blue-600' : 'text-red-600';
+        const cardBgColor = isReviewStudy ? 'bg-blue-500/10' : 'bg-red-500/10';
+        const cardBorderColor = isReviewStudy ? 'border-blue-400/30' : 'border-red-400/30';
+        const badgeBgColor = isReviewStudy ? 'bg-blue-500/20' : 'bg-red-500/20';
+        const badgeTextColor = isReviewStudy ? 'text-blue-300' : 'text-red-300';
         const buttonBgColor = isReviewStudy ? 'bg-blue-600 hover:bg-blue-700' : 'bg-red-600 hover:bg-red-700';
 
         return (
-            <div className="min-h-screen bg-gray-50 p-8">
+            <div className="min-h-screen bg-gradient-to-br from-gray-900 to-indigo-900 p-8 font-sans text-white">
                 <div className="max-w-4xl mx-auto">
-                    <div className="bg-white rounded-2xl shadow-xl overflow-hidden">
-                        <div className={`${headerBgColor} text-white p-6`}>
+                    <div className="bg-white/10 backdrop-blur-xl border border-white/10 rounded-3xl shadow-2xl overflow-hidden">
+                        <div className={`${headerBgColor} p-6 border-b border-white/10`}>
                             <div className="flex items-center space-x-3">
-                                <BookOpen className="w-8 h-8" />
+                                <BookOpen className="w-8 h-8 text-white" />
                                 <div>
-                                    <h1 className="text-2xl font-bold">
+                                    <h1 className="text-2xl font-bold text-white">
                                         {isReviewStudy ? '복습 단어 학습' : '오답 단어 학습'}
                                     </h1>
                                     <p className={`${headerTextColor} text-sm`}>
@@ -459,27 +544,26 @@ export default function TestInterface() {
                                 {wrongWords.map((word, index) => (
                                     <div
                                         key={word.id}
-                                        className={`p-4 ${cardBgColor} rounded-xl border ${cardBorderColor} cursor-pointer`}
+                                        className={`p-4 ${cardBgColor} rounded-xl border ${cardBorderColor} cursor-pointer hover:bg-white/5 transition-colors`}
                                         onClick={() => speakWord(word.english)}
-                                        aria-label={`발음 듣기: ${word.english}`}
                                     >
                                         <div className="flex items-center space-x-2 mb-2">
                                             <span className={`text-xs font-medium ${badgeTextColor} ${badgeBgColor} px-2 py-1 rounded`}>
                                                 {isReviewStudy ? `복습 ${index + 1}` : `오답 ${index + 1}`}
                                             </span>
                                         </div>
-                                        <h3 className="text-xl font-bold text-gray-900 mb-1">{word.english}</h3>
-                                        <p className="text-gray-600">{word.korean}</p>
+                                        <h3 className="text-xl font-bold text-white mb-1">{word.english}</h3>
+                                        <p className="text-gray-300">{word.korean}</p>
                                         {!isReviewStudy && answers[word.id]?.userAnswer && (
-                                            <p className="text-sm text-red-600 mt-2">내 답: {answers[word.id].userAnswer}</p>
+                                            <p className="text-sm text-red-400 mt-2">내 답: {answers[word.id].userAnswer}</p>
                                         )}
                                     </div>
                                 ))}
                             </div>
-                            <div className="border-t border-gray-200 pt-6">
+                            <div className="border-t border-white/10 pt-6">
                                 <button
                                     onClick={startRetry}
-                                    className={`w-full py-4 ${buttonBgColor} text-white rounded-xl font-bold text-lg transition-all flex items-center justify-center space-x-2`}
+                                    className={`w-full py-4 ${buttonBgColor} text-white rounded-xl font-bold text-lg transition-all flex items-center justify-center space-x-2 shadow-lg`}
                                 >
                                     {isReviewStudy ? (
                                         <>
@@ -507,54 +591,61 @@ export default function TestInterface() {
 
     const getModeLabel = () => {
         if (retryMode) return '오답 재시험';
-        if (testMode === 'new') return '기본 단어 시험';
+        if (testMode === 'new' || testMode === 'word_typing') return '단어 시험';
+        if (testMode === 'sentence_type') return '문장 시험 (타이핑)';
+        if (testMode === 'sentence_click') return '문장 배열 시험';
         return '복습 시험';
     };
 
-
-
     return (
         <div
-            className="min-h-screen bg-gray-50 flex flex-col"
+            className="min-h-screen bg-gradient-to-br from-indigo-900 via-purple-900 to-indigo-900 flex flex-col font-sans text-white overflow-hidden relative"
             onCopy={(e) => e.preventDefault()}
             onPaste={(e) => e.preventDefault()}
             onCut={(e) => e.preventDefault()}
             onContextMenu={(e) => e.preventDefault()}
         >
-            <div className="h-2 bg-gray-200">
+            {/* Background Particles */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute top-20 left-20 w-60 h-60 bg-blue-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob"></div>
+                <div className="absolute bottom-20 right-20 w-60 h-60 bg-pink-500 rounded-full mix-blend-multiply filter blur-3xl opacity-10 animate-blob animation-delay-2000"></div>
+            </div>
+
+            <div className="h-2 bg-white/10 relative z-10">
                 <div
-                    className="h-full bg-indigo-600 transition-all duration-300"
+                    className="h-full bg-gradient-to-r from-cyan-400 to-blue-500 transition-all duration-300 shadow-[0_0_10px_rgba(34,211,238,0.5)]"
                     style={{ width: `${(currentProgress / totalProgress) * 100}%` }}
                 />
             </div>
-            <div className="flex-1 flex flex-col items-center justify-center p-4">
-                <div className="w-full max-w-2xl bg-white rounded-3xl shadow-xl overflow-hidden">
-                    <div className={`p-8 text-center text-white ${retryMode ? 'bg-red-600' : 'bg-indigo-600'}`}>
-                        <span className={`text-sm font-medium uppercase tracking-wider ${retryMode ? 'text-red-200' : 'text-indigo-200'}`}>
+            <div className="flex-1 flex flex-col items-center justify-center p-4 relative z-10">
+                <div className="w-full max-w-2xl bg-white/10 backdrop-blur-xl border border-white/20 rounded-3xl shadow-2xl overflow-hidden transform transition-all">
+                    <div className={`p-8 text-center text-white ${retryMode ? 'bg-red-600/80' : 'bg-indigo-600/80'} backdrop-blur-md`}>
+                        <span className={`text-sm font-medium uppercase tracking-wider ${retryMode ? 'text-red-100' : 'text-indigo-100'}`}>
                             {getModeLabel()} - 문제 {currentProgress} / {totalProgress}
+                            {/* <br /> <span className="text-xs opacity-50">Debug: Book={currentBookName}, Mode={testMode}</span> */}
                         </span>
-                        <h2 className="mt-4 text-4xl font-bold">
+                        <h2 className="mt-4 text-4xl font-bold drop-shadow-md animate-fade-in">
                             {currentWord ? (testMode === 'review' ? currentWord.english : currentWord.korean) : 'Loading...'}
                         </h2>
-                        <p className={`mt-2 text-sm ${retryMode ? 'text-red-200' : 'text-indigo-200'}`}>
-                            {testMode === 'review' ? '한글 뜻을 선택하세요' : '영어 단어를 입력하세요'}
+                        <p className={`mt-2 text-sm ${retryMode ? 'text-red-100' : 'text-indigo-100'}`}>
+                            {testMode === 'review' ? '한글 뜻을 선택하세요' : (testMode === 'sentence_click' ? '단어를 순서대로 클릭하세요' : '영어 단어/문장을 입력하세요')}
                         </p>
                     </div>
                     <div className="p-8">
-                        {isSentence(currentWord?.english) ? (
+                        {testMode === 'sentence_click' ? (
                             <div className="space-y-6">
-                                <div className="min-h-[60px] p-4 bg-gray-100 rounded-xl border-2 border-indigo-100 flex flex-wrap gap-2 items-center">
+                                <div className="min-h-[80px] p-4 bg-black/20 rounded-xl border-2 border-white/10 flex flex-wrap gap-2 items-center shadow-inner">
                                     {selectedWords.map((w) => (
                                         <button
                                             key={w.id}
                                             onClick={() => handleSentenceUndo(w)}
-                                            className="px-3 py-2 bg-indigo-600 text-white rounded-lg font-medium hover:bg-indigo-700 transition-all"
+                                            className="px-4 py-2 bg-indigo-500 text-white rounded-lg font-bold hover:bg-indigo-600 transition-all shadow-lg transform hover:-translate-y-1"
                                         >
                                             {w.text}
                                         </button>
                                     ))}
                                     {selectedWords.length === 0 && (
-                                        <span className="text-gray-400 text-sm">단어를 클릭하여 문장을 완성하세요</span>
+                                        <span className="text-indigo-300 text-sm mx-auto">단어를 클릭하여 문장을 완성하세요</span>
                                     )}
                                 </div>
                                 <div className="flex flex-wrap gap-2 justify-center">
@@ -562,7 +653,7 @@ export default function TestInterface() {
                                         <button
                                             key={w.id}
                                             onClick={() => handleSentenceClick(w)}
-                                            className="px-3 py-2 bg-white border border-gray-300 text-gray-700 rounded-lg font-medium hover:border-indigo-500 hover:text-indigo-600 transition-all shadow-sm"
+                                            className="px-4 py-2 bg-white text-indigo-900 rounded-lg font-bold hover:bg-indigo-50 transition-all shadow-md transform hover:-translate-y-1 border-b-4 border-indigo-200"
                                         >
                                             {w.text}
                                         </button>
@@ -571,9 +662,9 @@ export default function TestInterface() {
                                 <button
                                     onClick={submitSentence}
                                     disabled={scrambledWords.length > 0}
-                                    className={`w-full py-3 rounded-xl font-bold text-lg transition-all ${scrambledWords.length === 0
-                                        ? 'bg-indigo-600 text-white hover:bg-indigo-700'
-                                        : 'bg-gray-200 text-gray-400 cursor-not-allowed'
+                                    className={`w-full py-4 rounded-xl font-bold text-lg transition-all shadow-lg ${scrambledWords.length === 0
+                                        ? 'bg-gradient-to-r from-green-400 to-emerald-500 text-white hover:from-green-500 hover:to-emerald-600 transform hover:scale-[1.02]'
+                                        : 'bg-white/10 text-gray-400 cursor-not-allowed border border-white/10'
                                         }`}
                                 >
                                     정답 확인
@@ -593,7 +684,7 @@ export default function TestInterface() {
                                         <button
                                             key={idx}
                                             onClick={() => handleAnswer(option)}
-                                            className="p-4 text-left text-lg font-medium text-gray-700 bg-gray-50 hover:bg-indigo-50 hover:text-indigo-700 rounded-xl transition-all border border-gray-100 hover:border-indigo-200"
+                                            className="p-5 text-left text-lg font-bold text-white bg-white/10 hover:bg-white/20 rounded-xl transition-all border border-white/10 hover:border-white/30 shadow-lg transform hover:-translate-y-1"
                                         >
                                             {option}
                                         </button>
@@ -615,14 +706,14 @@ export default function TestInterface() {
                                             type="text"
                                             autoFocus
                                             autoComplete="off"
-                                            placeholder="영어 단어를 입력하세요..."
-                                            className="flex-1 w-full p-4 text-xl border-2 border-gray-200 rounded-xl focus:border-indigo-500 focus:ring-4 focus:ring-indigo-100 outline-none transition-all"
+                                            placeholder="정답을 입력하세요..."
+                                            className="flex-1 w-full p-5 text-xl bg-black/20 border-2 border-white/10 rounded-xl focus:border-yellow-400 focus:bg-black/30 text-white placeholder-indigo-300 outline-none transition-all shadow-inner"
                                         />
                                         <button
                                             type="submit"
-                                            className="p-2 bg-indigo-600 rounded-full hover:bg-indigo-700 transition-all flex items-center justify-center"
+                                            className="p-4 bg-gradient-to-r from-indigo-500 to-purple-500 rounded-xl hover:from-indigo-600 hover:to-purple-600 transition-all shadow-lg transform hover:scale-105"
                                         >
-                                            <ArrowRight className="w-5 h-5 text-white" />
+                                            <ArrowRight className="w-6 h-6 text-white" />
                                         </button>
                                     </div>
                                 </form>
@@ -631,6 +722,27 @@ export default function TestInterface() {
                     </div>
                 </div>
             </div>
+            <style>{`
+                @keyframes blob {
+                    0% { transform: translate(0px, 0px) scale(1); }
+                    33% { transform: translate(30px, -50px) scale(1.1); }
+                    66% { transform: translate(-20px, 20px) scale(0.9); }
+                    100% { transform: translate(0px, 0px) scale(1); }
+                }
+                .animate-blob {
+                    animation: blob 7s infinite;
+                }
+                .animation-delay-2000 {
+                    animation-delay: 2s;
+                }
+                .animate-fade-in {
+                    animation: fadeIn 0.5s ease-out;
+                }
+                @keyframes fadeIn {
+                    from { opacity: 0; transform: translateY(10px); }
+                    to { opacity: 1; transform: translateY(0); }
+                }
+            `}</style>
         </div>
     );
 }

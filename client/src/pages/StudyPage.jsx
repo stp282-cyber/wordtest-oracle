@@ -195,14 +195,41 @@ export default function StudyPage() {
                         </div>
 
                         {/* Study Complete Button */}
-                        <div className="border-t border-gray-200 pt-6">
+                        <div className="border-t border-gray-200 pt-6 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-5 gap-4">
+                            <button
+                                onClick={() => navigate('/student/game', { state: location.state })}
+                                className="py-4 bg-green-500 text-white rounded-xl font-bold text-lg hover:bg-green-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                            >
+                                <span className="text-2xl">🎮</span>
+                                <span className="text-sm md:text-base">카드 뒤집기</span>
+                            </button>
+                            <button
+                                onClick={() => navigate('/student/scramble', { state: location.state })}
+                                className="py-4 bg-yellow-500 text-white rounded-xl font-bold text-lg hover:bg-yellow-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                            >
+                                <span className="text-2xl">🧩</span>
+                                <span className="text-sm md:text-base">단어 조합</span>
+                            </button>
+                            <button
+                                onClick={() => navigate('/student/speed', { state: location.state })}
+                                className="py-4 bg-pink-500 text-white rounded-xl font-bold text-lg hover:bg-pink-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                            >
+                                <span className="text-2xl">⚡</span>
+                                <span className="text-sm md:text-base">스피드 퀴즈</span>
+                            </button>
+                            <button
+                                onClick={() => navigate('/student/rain', { state: location.state })}
+                                className="py-4 bg-blue-500 text-white rounded-xl font-bold text-lg hover:bg-blue-600 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
+                            >
+                                <span className="text-2xl">🌧️</span>
+                                <span className="text-sm md:text-base">단어 소나기</span>
+                            </button>
                             <button
                                 onClick={handleStartTest}
-                                className="w-full py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center space-x-2"
+                                className="py-4 bg-indigo-600 text-white rounded-xl font-bold text-lg hover:bg-indigo-700 transition-all flex items-center justify-center space-x-2 shadow-md hover:shadow-lg transform hover:-translate-y-0.5"
                             >
                                 <Check className="w-6 h-6" />
-                                <span>학습 완료 - 시험 시작하기</span>
-                                <ArrowRight className="w-6 h-6" />
+                                <span className="text-sm md:text-base">시험 시작</span>
                             </button>
                         </div>
                     </div>
