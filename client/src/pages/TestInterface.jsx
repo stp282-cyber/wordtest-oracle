@@ -4,7 +4,7 @@ import { ArrowRight, Check, RotateCcw, BookOpen, Trophy, DollarSign } from 'luci
 import { db } from '../firebase';
 import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
-import { addDollars, getRewardSettings } from '../utils/dollarUtils';
+import { addDollars, getRewardSettings, hasReceivedDailyReward } from '../utils/dollarUtils';
 
 const isSentence = (text) => text && text.trim().split(/\s+/).length >= 3;
 
@@ -417,18 +417,40 @@ export default function TestInterface() {
             // Reward Calculation
             const rewardSettings = await getRewardSettings();
 
-            // 1. Daily Completion Reward
-            if (location.state?.scheduledDate) {
-                await addDollars(userId, rewardSettings.daily_completion_reward, '매일 학습 완료');
-                totalEarned += rewardSettings.daily_completion_reward;
-            }
-
             // Update User Progress
             const userRef = doc(db, 'users', userId);
             const userSnap = await getDoc(userRef);
 
             if (userSnap.exists()) {
                 const userData = userSnap.data();
+
+                // 1. Daily Completion Reward
+                if (location.state?.scheduledDate) {
+                    const scheduledDate = new Date(location.state.scheduledDate);
+                    const today = new Date();
+
+                    // Check if scheduledDate is TODAY
+                    const isToday = scheduledDate.toDateString() === today.toDateString();
+
+                    const dayOfWeek = scheduledDate.getDay(); // 0 (Sun) - 6 (Sat)
+
+                    // Check if scheduledDate is a study day
+                    const studyDays = (userData.study_days || '1,2,3,4,5').split(',').map(Number);
+                    const isStudyDay = studyDays.includes(dayOfWeek);
+
+                    // Check if already received reward TODAY
+                    const alreadyReceived = await hasReceivedDailyReward(userId);
+
+                    // Only give reward if:
+                    // 1. It is Today's scheduled learning (not future, not past)
+                    // 2. It is a valid study day
+                    // 3. Has not received reward yet today
+                    if (isToday && isStudyDay && !alreadyReceived) {
+                        await addDollars(userId, rewardSettings.daily_completion_reward, '매일 학습 완료');
+                        totalEarned += rewardSettings.daily_completion_reward;
+                    }
+                }
+
                 const currentBookProgress = userData.book_progress || {};
 
                 // Get current progress for this book

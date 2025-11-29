@@ -85,3 +85,24 @@ export const getDailyGameEarnings = async (userId) => {
         return 0;
     }
 };
+
+export const hasReceivedDailyReward = async (userId) => {
+    try {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const todayISO = today.toISOString();
+
+        const q = query(
+            collection(db, 'dollar_history'),
+            where('user_id', '==', userId),
+            where('reason', '==', '매일 학습 완료'),
+            where('date', '>=', todayISO)
+        );
+
+        const querySnapshot = await getDocs(q);
+        return !querySnapshot.empty;
+    } catch (error) {
+        console.error("Error checking daily reward:", error);
+        return false;
+    }
+};
