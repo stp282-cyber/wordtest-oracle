@@ -48,12 +48,12 @@ export default function StudentDashboard() {
     const navigate = useNavigate();
     const username = localStorage.getItem('username');
     const userId = localStorage.getItem('userId');
+    const academyId = localStorage.getItem('academyId') || 'academy_default';
 
     // Fetch Dashboard Data
     useEffect(() => {
         const fetchDashboard = async () => {
             if (!userId) return;
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
 
             try {
                 // Fetch User Settings

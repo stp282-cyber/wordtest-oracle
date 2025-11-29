@@ -1,5 +1,5 @@
 import React, { useEffect, useState, useCallback } from 'react';
-import { useNavigate } from 'react-router-dom';
+
 import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download, DollarSign, Edit2, Megaphone, MessageCircle } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, getDocs, doc, updateDoc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
@@ -13,7 +13,7 @@ export default function AdminDashboard() {
     const [selectedResult, setSelectedResult] = useState(null);
 
     const [studentResults, setStudentResults] = useState([]);
-    const navigate = useNavigate();
+    // const navigate = useNavigate();
 
     const fetchStudents = useCallback(async () => {
         try {

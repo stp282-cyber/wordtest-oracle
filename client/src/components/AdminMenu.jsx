@@ -2,10 +2,9 @@ import React, { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import {
     BookOpen, Users, Megaphone, DollarSign,
-    Download, UserCog, Menu, X, GraduationCap, School, Database
+    Download, UserCog, Menu, X, GraduationCap, School, Database,
+    LogOut, LayoutDashboard, Settings, MessageCircle
 } from 'lucide-react';
-import { db } from '../firebase';
-import { collection, getDocs } from 'firebase/firestore';
 
 export default function AdminMenu() {
     const navigate = useNavigate();

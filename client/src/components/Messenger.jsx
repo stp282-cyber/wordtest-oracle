@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, X, Send, User, ChevronLeft, Users } from 'lucide-react';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, setDoc, serverTimestamp, increment, getDocs, getDoc, limit } from 'firebase/firestore';
 
 export default function Messenger() {
@@ -9,7 +9,7 @@ export default function Messenger() {
     const [chats, setChats] = useState([]);
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
-    const [loading, setLoading] = useState(true);
+    // const [loading, setLoading] = useState(true);
     const [totalUnread, setTotalUnread] = useState(0);
 
     // For Students
@@ -158,7 +158,7 @@ export default function Messenger() {
             });
 
             setChats(chatList);
-            setLoading(false);
+            // setLoading(false);
 
             // Calculate total unread
             let unread = 0;

@@ -1,14 +1,14 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Settings, Save, ArrowLeft, Building, Type, Layout, Info } from 'lucide-react';
-import { db, auth } from '../firebase';
+import { db } from '../firebase';
 import { doc, getDoc, setDoc } from 'firebase/firestore';
 
 export default function AcademySettings() {
     const navigate = useNavigate();
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
-    const [academyId, setAcademyId] = useState(localStorage.getItem('academyId') || 'academy_default');
+    const [academyId] = useState(localStorage.getItem('academyId') || 'academy_default');
 
     const [settings, setSettings] = useState({
         name: '',

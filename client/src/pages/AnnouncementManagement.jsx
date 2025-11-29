@@ -1,7 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { db, auth } from '../firebase';
 import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, getDoc, limit } from 'firebase/firestore';
-import { Plus, Trash2, Megaphone, Users } from 'lucide-react';
+import { Plus, Trash2, Megaphone } from 'lucide-react';
 
 export default function AnnouncementManagement() {
     const [announcements, setAnnouncements] = useState([]);
@@ -9,6 +9,46 @@ export default function AnnouncementManagement() {
     const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '', targetClassId: 'all' });
     const [loading, setLoading] = useState(true);
     const [academyId, setAcademyId] = useState(null);
+
+    const fetchClasses = useCallback(async () => {
+        if (!academyId) return;
+        try {
+            // Filter classes by academyId
+            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
+            const snapshot = await getDocs(q);
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setClasses(data);
+        } catch (error) {
+            console.error("Error fetching classes:", error);
+        }
+    }, [academyId]);
+
+    const fetchAnnouncements = useCallback(async () => {
+        if (!academyId) return;
+        try {
+            console.log("Fetching announcements for academyId:", academyId);
+            // Filter announcements by academyId
+            // REMOVED orderBy to avoid Firestore index requirements for now. Sorting client-side.
+            const q = query(
+                collection(db, 'announcements'),
+                where('academyId', '==', academyId),
+                orderBy('createdAt', 'desc'),
+                limit(20)
+            );
+            const snapshot = await getDocs(q);
+            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Sort client-side
+            data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            console.log("Fetched announcements:", data);
+            setAnnouncements(data);
+            setLoading(false);
+        } catch (error) {
+            console.error("Error fetching announcements:", error);
+            setLoading(false);
+        }
+    }, [academyId]);
 
     useEffect(() => {
         const fetchUserData = async () => {
@@ -35,45 +75,7 @@ export default function AnnouncementManagement() {
             fetchClasses();
             fetchAnnouncements();
         }
-    }, [academyId]);
-
-    const fetchClasses = async () => {
-        try {
-            // Filter classes by academyId
-            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
-            const snapshot = await getDocs(q);
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setClasses(data);
-        } catch (error) {
-            console.error("Error fetching classes:", error);
-        }
-    };
-
-    const fetchAnnouncements = async () => {
-        try {
-            console.log("Fetching announcements for academyId:", academyId);
-            // Filter announcements by academyId
-            // REMOVED orderBy to avoid Firestore index requirements for now. Sorting client-side.
-            const q = query(
-                collection(db, 'announcements'),
-                where('academyId', '==', academyId),
-                orderBy('createdAt', 'desc'),
-                limit(20)
-            );
-            const snapshot = await getDocs(q);
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            // Sort client-side
-            data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-            console.log("Fetched announcements:", data);
-            setAnnouncements(data);
-            setLoading(false);
-        } catch (error) {
-            console.error("Error fetching announcements:", error);
-            setLoading(false);
-        }
-    };
+    }, [academyId, fetchClasses, fetchAnnouncements]);
 
     const handleAddAnnouncement = async (e) => {
         e.preventDefault();
