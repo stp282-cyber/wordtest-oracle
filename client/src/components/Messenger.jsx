@@ -2,6 +2,7 @@ import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, X, Send, User, ChevronLeft, Users } from 'lucide-react';
 import { db } from '../firebase';
 import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, setDoc, serverTimestamp, increment, getDocs, getDoc, limit } from 'firebase/firestore';
+import { cacheManager, CACHE_DURATION, createCacheKey } from '../utils/cache';
 
 export default function Messenger() {
     const [isOpen, setIsOpen] = useState(false);
@@ -59,12 +60,27 @@ export default function Messenger() {
     useEffect(() => {
         const fetchAcademyId = async () => {
             if (!userId) return;
-            // Always fetch to ensure we have the latest academyId
+
+            // Try cache first
+            const cacheKey = createCacheKey('user', userId);
+            const cached = cacheManager.get(cacheKey);
+
+            if (cached && cached.academyId) {
+                setAcademyId(cached.academyId);
+                localStorage.setItem('academyId', cached.academyId);
+                return;
+            }
+
+            // Fetch from database
             try {
                 const userDoc = await getDoc(doc(db, 'users', userId));
                 if (userDoc.exists()) {
                     const data = userDoc.data();
                     const fetchedId = data.academyId || 'academy_default';
+
+                    // Cache user data
+                    cacheManager.set(cacheKey, data, CACHE_DURATION.USER);
+
                     setAcademyId(fetchedId);
                     localStorage.setItem('academyId', fetchedId);
                 }
@@ -81,10 +97,19 @@ export default function Messenger() {
             const fetchTeachers = async () => {
                 try {
                     console.log("Fetching teachers for academyId:", academyId);
-
-                    // Fetch ALL admins first to handle potential missing academyId fields
-                    // Fetch admins for this academy
                     const currentAcademyId = academyId || 'academy_default';
+
+                    // Try cache first
+                    const cacheKey = createCacheKey('teachers', currentAcademyId);
+                    const cached = cacheManager.get(cacheKey);
+
+                    if (cached) {
+                        console.log(`[Cache] Using cached teachers: ${cached.length}`);
+                        setTeachers(cached);
+                        return;
+                    }
+
+                    // Fetch from database
                     const q = query(
                         collection(db, 'users'),
                         where('role', '==', 'admin'),
@@ -94,6 +119,10 @@ export default function Messenger() {
                     const teachersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
                     console.log(`Found ${teachersList.length} teachers for academy ${currentAcademyId}`);
+
+                    // Cache the data
+                    cacheManager.set(cacheKey, teachersList, CACHE_DURATION.TEACHERS);
+
                     setTeachers(teachersList);
                 } catch (error) {
                     console.error("Error fetching teachers:", error);

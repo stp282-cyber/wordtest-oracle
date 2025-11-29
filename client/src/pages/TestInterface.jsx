@@ -5,6 +5,7 @@ import { db } from '../firebase';
 import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 import { addDollars, getRewardSettings, hasReceivedDailyReward } from '../utils/dollarUtils';
+import { addTestToSummary } from '../utils/dailySummary';
 
 const isSentence = (text) => text && text.trim().split(/\s+/).length >= 3;
 
@@ -468,27 +469,35 @@ export default function TestInterface() {
         let totalEarned = 0;
 
         try {
-            // Save Test Result
-            await addDoc(collection(db, 'test_results'), {
-                user_id: userId,
+            // Save to Daily Summary (instead of test_results)
+            const today = new Date().toISOString().split('T')[0];
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+            await addTestToSummary(userId, {
+                date: today,
                 score: score,
+                correct: correctCount,
+                total: totalWords,
+                book_name: currentBookName,
+                test_mode: testMode,
+                range_start: rangeStart,
+                range_end: rangeEnd,
+                academyId: academyId,
+                timestamp: new Date().toISOString(),
+                // Additional metadata
                 new_words_score: newWordsScore,
                 new_words_total: newTotal,
                 new_words_correct: newCorrect,
                 review_words_score: reviewWordsScore,
                 review_words_total: reviewTotal,
                 review_words_correct: reviewCorrect,
-                details: JSON.stringify(Object.entries(finalAllAnswers).map(([id, val]) => ({ word_id: id, ...val }))),
-                range_start: rangeStart,
-                range_end: rangeEnd,
                 first_attempt_score: firstAttemptScore || score,
                 retry_count: retryCount,
                 test_type: initialTestType,
-                completed: 1,
-                date: new Date().toISOString(),
-                scheduled_date: location.state?.scheduledDate || null,
-                book_name: currentBookName
+                scheduled_date: location.state?.scheduledDate || null
             });
+
+            console.log(`✅ Test result saved to daily summary: ${score}점`);
 
             // Reward Calculation
             const rewardSettings = await getRewardSettings();

@@ -19,6 +19,20 @@
             ]
         },
         {
+            "collectionGroup": "test_results",
+            "queryScope": "COLLECTION",
+            "fields": [
+                {
+                    "fieldPath": "user_id",
+                    "order": "ASCENDING"
+                },
+                {
+                    "fieldPath": "date",
+                    "order": "ASCENDING"
+                }
+            ]
+        },
+        {
             "collectionGroup": "words",
             "queryScope": "COLLECTION",
             "fields": [
@@ -33,16 +47,16 @@
             ]
         },
         {
-            "collectionGroup": "test_results",
+            "collectionGroup": "student_daily_summaries",
             "queryScope": "COLLECTION",
             "fields": [
                 {
-                    "fieldPath": "user_id",
+                    "fieldPath": "userId",
                     "order": "ASCENDING"
                 },
                 {
                     "fieldPath": "date",
-                    "order": "ASCENDING"
+                    "order": "DESCENDING"
                 }
             ]
         }

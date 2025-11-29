@@ -1,8 +1,9 @@
 import React, { useEffect, useState, useCallback } from 'react';
 
-import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download, DollarSign, Edit2, Megaphone, MessageCircle } from 'lucide-react';
+import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download, DollarSign, Edit2, Megaphone, MessageCircle, Eye, X, Activity, FileText, Calendar } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, doc, updateDoc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc, setDoc, serverTimestamp, orderBy, limit } from 'firebase/firestore';
+import { cacheManager, CACHE_DURATION, createCacheKey } from '../utils/cache';
 
 export default function AdminDashboard() {
     const [students, setStudents] = useState([]);
@@ -13,11 +14,26 @@ export default function AdminDashboard() {
     const [selectedResult, setSelectedResult] = useState(null);
 
     const [studentResults, setStudentResults] = useState([]);
+    const [statusLogs, setStatusLogs] = useState([]);
+    const [showDetailModal, setShowDetailModal] = useState(false);
+    const [detailStudent, setDetailStudent] = useState(null);
     // const navigate = useNavigate();
 
     const fetchStudents = useCallback(async () => {
         try {
             const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+            // Try cache first
+            const cacheKey = createCacheKey('students', academyId);
+            const cached = cacheManager.get(cacheKey);
+
+            if (cached) {
+                setStudents(cached);
+                setFilteredStudents(cached);
+                return;
+            }
+
+            // Fetch from database
             const q = query(
                 collection(db, 'users'),
                 where('role', '==', 'student'),
@@ -25,6 +41,10 @@ export default function AdminDashboard() {
             );
             const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Cache the data
+            cacheManager.set(cacheKey, data, CACHE_DURATION.STUDENTS);
+
             setStudents(data);
             setFilteredStudents(data);
         } catch (err) {
@@ -35,9 +55,24 @@ export default function AdminDashboard() {
     const fetchClasses = useCallback(async () => {
         try {
             const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+            // Try cache first
+            const cacheKey = createCacheKey('classes', academyId);
+            const cached = cacheManager.get(cacheKey);
+
+            if (cached) {
+                setClasses(cached);
+                return;
+            }
+
+            // Fetch from database
             const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
             const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Cache the data
+            cacheManager.set(cacheKey, data, CACHE_DURATION.CLASSES);
+
             setClasses(data);
         } catch (err) {
             console.error("Error fetching classes:", err);
@@ -50,12 +85,25 @@ export default function AdminDashboard() {
         const loadAcademy = async () => {
             try {
                 const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+                // Try cache first
+                const cacheKey = createCacheKey('academy', academyId);
+                const cached = cacheManager.get(cacheKey);
+
+                if (cached) {
+                    setAcademyName(cached.name || '이스턴 영어 학원');
+                    return;
+                }
+
+                // Fetch from database
                 const docRef = doc(db, 'academies', academyId);
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
-                    setAcademyName(docSnap.data().name);
+                    const data = docSnap.data();
+                    cacheManager.set(cacheKey, data, CACHE_DURATION.ACADEMY);
+                    setAcademyName(data.name);
                 } else {
-                    setAcademyName('이스턴 영어 학원'); // Fallback
+                    setAcademyName('이스턴 영어 학원');
                 }
             } catch (err) {
                 console.error("Error fetching academy:", err);
@@ -173,6 +221,53 @@ export default function AdminDashboard() {
         }
     };
 
+    const fetchStatusLogs = async (studentId) => {
+        try {
+            let rawStatusLogs = [];
+            try {
+                const statusQ = query(
+                    collection(db, 'student_status_logs'),
+                    where('student_id', '==', studentId),
+                    orderBy('changed_at', 'desc'),
+                    limit(50)
+                );
+                const statusSnapshot = await getDocs(statusQ);
+                rawStatusLogs = statusSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } catch (queryError) {
+                console.warn("Status logs index query failed, falling back to client-side sorting:", queryError);
+                const fallbackQuery = query(
+                    collection(db, 'student_status_logs'),
+                    where('student_id', '==', studentId)
+                );
+                const fallbackSnapshot = await getDocs(fallbackQuery);
+                rawStatusLogs = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                rawStatusLogs.sort((a, b) => {
+                    const dateA = a.changed_at?.toDate ? a.changed_at.toDate() : new Date(a.changed_at);
+                    const dateB = b.changed_at?.toDate ? b.changed_at.toDate() : new Date(b.changed_at);
+                    return dateB - dateA;
+                });
+                rawStatusLogs = rawStatusLogs.slice(0, 50);
+            }
+            setStatusLogs(rawStatusLogs);
+        } catch (e) {
+            console.error("Error fetching status logs:", e);
+            setStatusLogs([]);
+        }
+    };
+
+    const handleViewDetails = async (e, student) => {
+        e.stopPropagation();
+        setDetailStudent(student);
+        await fetchStatusLogs(student.id);
+        setShowDetailModal(true);
+    };
+
+    const formatTimestamp = (timestamp) => {
+        if (!timestamp) return '-';
+        const d = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
+        return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
     return (
         <div className="min-h-screen bg-gray-100 p-8">
             {/* ... (existing header) */}
@@ -255,6 +350,13 @@ export default function AdminDashboard() {
                                                 <div className="text-xs text-gray-500 mt-0.5 truncate">현재 진도: 단어 {student.current_word_index}번</div>
                                             </div>
                                             <div className="flex items-center gap-2 flex-shrink-0">
+                                                <button
+                                                    onClick={(e) => handleViewDetails(e, student)}
+                                                    className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                                                    title="상세 정보"
+                                                >
+                                                    <Eye className="w-4 h-4" />
+                                                </button>
                                                 <div className={`px-3 py-1.5 rounded text-white text-xs font-bold shadow-sm ${status.color}`}>
                                                     {status.label}
                                                 </div>
@@ -482,6 +584,140 @@ export default function AdminDashboard() {
                     </div>
                 )
             }
+
+            {/* Student Detail Modal */}
+            {showDetailModal && detailStudent && (
+                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl max-w-4xl w-full max-h-[90vh] overflow-y-auto">
+                        <div className="sticky top-0 bg-white border-b border-gray-200 p-6 flex items-center justify-between">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-900">{detailStudent.name || detailStudent.username} 학생 정보</h2>
+                                <p className="text-sm text-gray-500 mt-1">ID: {detailStudent.username}</p>
+                            </div>
+                            <button
+                                onClick={() => {
+                                    setShowDetailModal(false);
+                                    setDetailStudent(null);
+                                    setStatusLogs([]);
+                                }}
+                                className="text-gray-400 hover:text-gray-600 transition-colors"
+                            >
+                                <X className="w-6 h-6" />
+                            </button>
+                        </div>
+
+                        <div className="p-6 space-y-6">
+                            {/* Basic Info */}
+                            <section className="bg-gray-50 rounded-xl p-4">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                                    <FileText className="w-5 h-5 mr-2 text-indigo-600" />
+                                    기본 정보
+                                </h3>
+                                <div className="grid grid-cols-2 gap-4 text-sm">
+                                    <div>
+                                        <span className="text-gray-500">이름:</span>
+                                        <span className="ml-2 font-medium text-gray-900">{detailStudent.name || '-'}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500">아이디:</span>
+                                        <span className="ml-2 font-medium text-gray-900">{detailStudent.username}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500">반:</span>
+                                        <span className="ml-2 font-medium text-gray-900">{detailStudent.class_name || '미배정'}</span>
+                                    </div>
+                                    <div>
+                                        <span className="text-gray-500">상태:</span>
+                                        <span className={`ml-2 px-2 py-0.5 rounded-full text-xs font-medium ${detailStudent.status === 'suspended'
+                                                ? 'bg-gray-200 text-gray-700'
+                                                : 'bg-green-100 text-green-700'
+                                            }`}>
+                                            {detailStudent.status === 'suspended' ? '휴원' : '정상'}
+                                        </span>
+                                    </div>
+                                </div>
+                            </section>
+
+                            {/* Study Progress */}
+                            <section className="bg-blue-50 rounded-xl p-4">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4">📚 학습 진도</h3>
+                                <div className="space-y-2 text-sm">
+                                    {detailStudent.book_progress && Object.keys(detailStudent.book_progress).length > 0 ? (
+                                        Object.entries(detailStudent.book_progress).map(([book, progress]) => (
+                                            <div key={book} className="flex justify-between">
+                                                <span className="text-gray-700">{book}:</span>
+                                                <span className="font-medium text-gray-900">{progress} 단어</span>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <p className="text-gray-500">학습 진도 없음</p>
+                                    )}
+                                </div>
+                            </section>
+
+                            {/* Dollar Balance */}
+                            <section className="bg-green-50 rounded-xl p-4">
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4">💰 달러 잔액</h3>
+                                <p className="text-2xl font-bold text-green-600">
+                                    {detailStudent.dollars?.toFixed(2) || detailStudent.dollar_balance?.toFixed(2) || '0.00'} $
+                                </p>
+                            </section>
+
+                            {/* Status Change History */}
+                            <section>
+                                <h3 className="text-lg font-semibold text-gray-900 mb-4 flex items-center">
+                                    <Activity className="w-5 h-5 mr-2 text-blue-600" />
+                                    상태 변경 이력
+                                </h3>
+                                {statusLogs.length === 0 ? (
+                                    <p className="text-gray-500 text-center py-8 bg-gray-50 rounded-lg">상태 변경 이력이 없습니다.</p>
+                                ) : (
+                                    <div className="space-y-3">
+                                        {statusLogs.map((log, index) => (
+                                            <div
+                                                key={log.id || index}
+                                                className="bg-white rounded-lg shadow-sm p-4 border border-gray-200 hover:shadow-md transition-shadow"
+                                            >
+                                                <div className="flex items-center space-x-4">
+                                                    <div className={`p-3 rounded-full ${log.status === 'active'
+                                                            ? 'bg-green-100 text-green-600'
+                                                            : 'bg-gray-100 text-gray-600'
+                                                        }`}>
+                                                        <Activity className="w-5 h-5" />
+                                                    </div>
+                                                    <div className="flex-1">
+                                                        <p className="font-semibold text-gray-900">
+                                                            {log.status === 'active' ? '정상(Active) 전환' : '휴원(Suspended) 전환'}
+                                                        </p>
+                                                        <div className="flex items-center text-sm text-gray-500 mt-1">
+                                                            <Calendar className="w-3 h-3 mr-1" />
+                                                            <span>{formatTimestamp(log.changed_at)}</span>
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            </div>
+                                        ))}
+                                    </div>
+                                )}
+                            </section>
+
+                            {/* Action Buttons */}
+                            <div className="flex space-x-3 pt-4 border-t border-gray-200">
+                                <button
+                                    onClick={() => {
+                                        setShowDetailModal(false);
+                                        setDetailStudent(null);
+                                        setStatusLogs([]);
+                                    }}
+                                    className="flex-1 px-6 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                                >
+                                    닫기
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div >
     );
 }

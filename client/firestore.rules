@@ -75,6 +75,15 @@ service cloud.firestore {
       }
     }
 
+    match /student_daily_summaries/{summaryId} {
+      allow read: if request.auth != null && 
+        (resource.data.userId == request.auth.uid || isAdmin() || isSuperAdmin());
+      allow create: if request.auth != null && 
+        request.resource.data.userId == request.auth.uid;
+      allow update: if request.auth != null && 
+        resource.data.userId == request.auth.uid;
+    }
+
     match /academies/{academyId} {
       allow read: if request.auth != null;
       allow write: if isAdmin() || isSuperAdmin();

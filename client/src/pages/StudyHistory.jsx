@@ -7,8 +7,7 @@ import { collection, query, where, getDocs, orderBy, limit } from 'firebase/fire
 export default function StudyHistory() {
     const [history, setHistory] = useState([]);
     const [dollarHistory, setDollarHistory] = useState([]);
-    const [statusLogs, setStatusLogs] = useState([]);
-    const [activeTab, setActiveTab] = useState('tests'); // 'tests', 'dollars', 'status'
+    const [activeTab, setActiveTab] = useState('tests'); // 'tests', 'dollars'
     const navigate = useNavigate();
     const location = useLocation();
     const targetUserId = location.state?.targetUserId;
@@ -109,38 +108,6 @@ export default function StudyHistory() {
             }
             setDollarHistory(rawDollarHistory);
 
-            // Fetch Status Logs
-            try {
-                let rawStatusLogs = [];
-                try {
-                    const statusQ = query(
-                        collection(db, 'student_status_logs'),
-                        where('student_id', '==', userId),
-                        orderBy('changed_at', 'desc'),
-                        limit(50)
-                    );
-                    const statusSnapshot = await getDocs(statusQ);
-                    rawStatusLogs = statusSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                } catch (queryError) {
-                    console.warn("Status logs index query failed, falling back to client-side sorting:", queryError);
-                    const fallbackQuery = query(
-                        collection(db, 'student_status_logs'),
-                        where('student_id', '==', userId)
-                    );
-                    const fallbackSnapshot = await getDocs(fallbackQuery);
-                    rawStatusLogs = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    rawStatusLogs.sort((a, b) => {
-                        const dateA = a.changed_at?.toDate ? a.changed_at.toDate() : new Date(a.changed_at);
-                        const dateB = b.changed_at?.toDate ? b.changed_at.toDate() : new Date(b.changed_at);
-                        return dateB - dateA;
-                    });
-                    rawStatusLogs = rawStatusLogs.slice(0, 50);
-                }
-                setStatusLogs(rawStatusLogs);
-            } catch (e) {
-                console.error("Error fetching status logs:", e);
-            }
-
         } catch (err) {
             console.error(err);
             alert('학습 기록을 불러오지 못했습니다.');
@@ -156,13 +123,6 @@ export default function StudyHistory() {
     const formatDate = (dateStr) => {
         if (!dateStr) return '-';
         const d = new Date(dateStr);
-        return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    };
-
-    const formatTimestamp = (timestamp) => {
-        if (!timestamp) return '-';
-        // Handle Firestore Timestamp
-        const d = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
         return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
 
@@ -205,16 +165,6 @@ export default function StudyHistory() {
                     달러 내역
                     {activeTab === 'dollars' && (
                         <div className="absolute bottom-0 left-0 w-full h-0.5 bg-green-600 rounded-t-full"></div>
-                    )}
-                </button>
-                <button
-                    onClick={() => setActiveTab('status')}
-                    className={`pb-2 px-4 font-medium transition-colors relative ${activeTab === 'status' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
-                        }`}
-                >
-                    상태 변경 이력
-                    {activeTab === 'status' && (
-                        <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full"></div>
                     )}
                 </button>
             </div>
@@ -311,32 +261,6 @@ export default function StudyHistory() {
                 )
             )}
 
-            {activeTab === 'status' && (
-                statusLogs.length === 0 ? (
-                    <p className="text-gray-500 text-center py-10">상태 변경 이력이 없습니다.</p>
-                ) : (
-                    <div className="space-y-4">
-                        {statusLogs.map((log, index) => (
-                            <div key={index} className="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex items-center justify-between hover:shadow-md transition-shadow">
-                                <div className="flex items-center space-x-4">
-                                    <div className={`p-3 rounded-full ${log.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'}`}>
-                                        <Activity className="w-6 h-6" />
-                                    </div>
-                                    <div>
-                                        <p className="font-bold text-gray-800 text-lg">
-                                            {log.status === 'active' ? '정상(Active) 전환' : '휴원(Suspended) 전환'}
-                                        </p>
-                                        <div className="flex items-center text-sm text-gray-500 space-x-2">
-                                            <Calendar className="w-3 h-3" />
-                                            <span>{formatTimestamp(log.changed_at)}</span>
-                                        </div>
-                                    </div>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                )
-            )}
         </div>
     );
 }

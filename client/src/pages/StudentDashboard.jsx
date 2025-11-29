@@ -143,19 +143,13 @@ export default function StudentDashboard() {
                     setAnnouncements(sortedAnnouncements);
                 }
 
-                // Fetch History
-                const historyQuery = query(
-                    collection(db, 'test_results'),
-                    where('user_id', '==', userId)
-                );
-                const querySnapshot = await getDocs(historyQuery);
-                const historyData = querySnapshot.docs.map(doc => doc.data());
-
-                // Sort by date desc
-                historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
-                // Sort by date desc
-                historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
+                // Fetch History from Daily Summaries (30 reads vs 200+ reads)
+                const { getRecentSummaries, summariesToHistory } = await import('../utils/dailySummary');
+                const summaries = await getRecentSummaries(userId, 30);
+                const historyData = summariesToHistory(summaries);
                 setHistory(historyData);
+
+                console.log(`✅ Loaded ${historyData.length} test results from ${summaries.length} daily summaries`);
 
                 // Fetch Word Counts from 'books' collection (Optimized)
                 const booksQuery = query(collection(db, 'books'), where('academyId', '==', academyId));
