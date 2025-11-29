@@ -90,14 +90,14 @@ export default function Login() {
     };
 
     return (
-        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100">
-            <div className="w-full max-w-md p-8 space-y-6 bg-white rounded-2xl shadow-xl">
+        <div className="flex items-center justify-center min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 px-4">
+            <div className="w-full max-w-md p-6 sm:p-8 space-y-6 bg-white rounded-2xl shadow-xl">
                 <div className="flex flex-col items-center mb-2">
                     <div className="mb-6 text-center transform hover:scale-105 transition-transform duration-300">
-                        <h1 className="text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 tracking-tighter mb-2 drop-shadow-sm">
+                        <h1 className="text-3xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 tracking-tighter mb-2 drop-shadow-sm">
                             Eastern WordTest
                         </h1>
-                        <h2 className="text-xl font-bold text-gray-600 tracking-wide">
+                        <h2 className="text-lg sm:text-xl font-bold text-gray-600 tracking-wide">
                             이스턴 영어 공부방
                         </h2>
                     </div>

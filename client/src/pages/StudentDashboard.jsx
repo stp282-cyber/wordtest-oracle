@@ -409,40 +409,40 @@ export default function StudentDashboard() {
                     </div>
                 )}
                 <div className="bg-white rounded-2xl shadow-sm border border-gray-100 overflow-hidden">
-                    <div className="p-6 border-b border-gray-100 flex items-center justify-between">
-                        <div className="flex items-center space-x-4">
-                            <button onClick={handlePrevWeek} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                                <ChevronLeft className="w-5 h-5 text-gray-600" />
+                    <div className="p-4 sm:p-6 border-b border-gray-100 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
+                        <div className="flex items-center space-x-2 sm:space-x-4 w-full sm:w-auto justify-between sm:justify-start">
+                            <button onClick={handlePrevWeek} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-full transition-colors">
+                                <ChevronLeft className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
                             </button>
-                            <h2 className="text-xl font-bold text-gray-800">
-                                {format(referenceDate, 'yyyy년 M월')} {getWeekOfMonth(referenceDate, { weekStartsOn: 0 })}주차 학습 계획
+                            <h2 className="text-lg sm:text-xl font-bold text-gray-800">
+                                {format(referenceDate, 'yyyy년 M월')} {getWeekOfMonth(referenceDate, { weekStartsOn: 0 })}주차
                             </h2>
-                            <button onClick={handleNextWeek} className="p-2 hover:bg-gray-100 rounded-full transition-colors">
-                                <ChevronRight className="w-5 h-5 text-gray-600" />
+                            <button onClick={handleNextWeek} className="p-1.5 sm:p-2 hover:bg-gray-100 rounded-full transition-colors">
+                                <ChevronRight className="w-4 h-4 sm:w-5 sm:h-5 text-gray-600" />
                             </button>
                             <button
                                 onClick={handleToday}
-                                className="px-3 py-1 text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors"
+                                className="px-2 py-1 sm:px-3 sm:py-1 text-xs sm:text-sm font-medium text-indigo-600 bg-indigo-50 hover:bg-indigo-100 rounded-lg transition-colors whitespace-nowrap"
                             >
                                 오늘
                             </button>
                         </div>
-                        <div className="flex items-center space-x-2 text-sm text-gray-500">
-                            <span className="flex items-center"><div className="w-3 h-3 bg-green-500 rounded-full mr-1"></div>완료</span>
-                            <span className="flex items-center"><div className="w-3 h-3 bg-red-500 rounded-full mr-1"></div>학습 예정</span>
-                            <span className="flex items-center"><div className="w-3 h-3 bg-blue-200 rounded-full mr-1"></div>이전 범위</span>
+                        <div className="flex flex-wrap items-center gap-2 text-xs sm:text-sm text-gray-500 w-full sm:w-auto justify-end">
+                            <span className="flex items-center"><div className="w-2 h-2 sm:w-3 sm:h-3 bg-green-500 rounded-full mr-1"></div>완료</span>
+                            <span className="flex items-center"><div className="w-2 h-2 sm:w-3 sm:h-3 bg-red-500 rounded-full mr-1"></div>학습 예정</span>
+                            <span className="flex items-center"><div className="w-2 h-2 sm:w-3 sm:h-3 bg-blue-200 rounded-full mr-1"></div>이전 범위</span>
                         </div>
                     </div>
 
                     <div className="overflow-x-auto">
-                        <table className="w-full min-w-[800px]">
+                        <table className="w-full min-w-[600px] sm:min-w-[800px]">
                             <thead>
                                 <tr className="bg-gray-50">
-                                    <th className="px-6 py-4 text-left text-sm font-semibold text-gray-600 w-48 sticky left-0 bg-gray-50 z-10">교재명</th>
+                                    <th className="px-3 py-3 sm:px-6 sm:py-4 text-left text-xs sm:text-sm font-semibold text-gray-600 w-24 sm:w-48 sticky left-0 bg-gray-50 z-10">교재명</th>
                                     {studyDays.map((date, i) => (
-                                        <th key={i} className="px-6 py-4 text-center text-sm font-semibold text-gray-600 border-l border-gray-200">
+                                        <th key={i} className="px-2 py-3 sm:px-6 sm:py-4 text-center text-xs sm:text-sm font-semibold text-gray-600 border-l border-gray-200">
                                             <div className="flex flex-col items-center">
-                                                <span>{format(date, 'M/d')} ({['일', '월', '화', '수', '목', '금', '토'][getDay(date)]})</span>
+                                                <span>{format(date, 'M/d')} <span className="hidden sm:inline">({['일', '월', '화', '수', '목', '금', '토'][getDay(date)]})</span><span className="sm:hidden">({['일', '월', '화', '수', '목', '금', '토'][getDay(date)]})</span></span>
                                             </div>
                                         </th>
                                     ))}
@@ -451,9 +451,9 @@ export default function StudentDashboard() {
                             <tbody className="divide-y divide-gray-100">
                                 {activeBooks.map((book) => (
                                     <tr key={book} className="hover:bg-gray-50 transition-colors">
-                                        <td className="px-6 py-6 text-sm font-bold text-gray-800 sticky left-0 bg-white z-10 border-r border-gray-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
-                                            {book}
-                                            <span className="block text-xs font-normal text-gray-500 mt-1">
+                                        <td className="px-3 py-4 sm:px-6 sm:py-6 text-xs sm:text-sm font-bold text-gray-800 sticky left-0 bg-white z-10 border-r border-gray-100 shadow-[2px_0_5px_-2px_rgba(0,0,0,0.05)]">
+                                            <div className="truncate max-w-[80px] sm:max-w-none" title={book}>{book}</div>
+                                            <span className="block text-[10px] sm:text-xs font-normal text-gray-500 mt-1">
                                                 (총 {bookCounts[book] || 0}개)
                                             </span>
                                         </td>
@@ -486,58 +486,38 @@ export default function StudentDashboard() {
                                             const isFutureLearning = isFutureDate || (range && range.bookName && range.bookName !== book) || (range && range.start > currentProgress);
 
                                             return (
-                                                <td key={i} className="px-4 py-4 border-l border-gray-100 align-top">
-                                                    <div className="flex flex-col items-center space-y-3">
+                                                <td key={i} className="px-2 py-2 sm:px-4 sm:py-4 border-l border-gray-100 align-top">
+                                                    <div className="flex flex-col items-center space-y-1 sm:space-y-3">
                                                         {range && (
                                                             <div className="flex flex-col items-center">
                                                                 {range.bookName !== book && (
-                                                                    <span className="text-xs font-bold text-purple-600 mb-1">
+                                                                    <span className="text-[10px] sm:text-xs font-bold text-purple-600 mb-0.5 sm:mb-1">
                                                                         {range.bookName}
                                                                     </span>
                                                                 )}
-                                                                <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
+                                                                <span className="text-[10px] sm:text-xs font-medium text-indigo-600 bg-indigo-50 px-1 py-0.5 sm:px-2 sm:py-1 rounded whitespace-nowrap">
                                                                     범위 {range.start} ~ {range.end - 1}
                                                                 </span>
                                                             </div>
                                                         )}
 
-                                                        {isDone ? (
-                                                            <button
-                                                                onClick={() => handleStartStudy(date, book, range)}
-                                                                className="flex flex-col items-center w-full hover:bg-gray-50 rounded-lg p-1 transition-colors group"
-                                                            >
-                                                                <span className="px-3 py-1 bg-green-100 text-green-700 rounded text-xs font-medium mb-2 group-hover:bg-green-200 group-hover:text-green-800 transition-colors">완료됨 (재학습)</span>
-                                                                <div className="text-xs text-gray-400">
-                                                                    {history.find(h => {
-                                                                        const recordDate = h.scheduled_date ? new Date(h.scheduled_date) : new Date(h.date);
-                                                                        const historyBook = h.book_name || settings.book_name;
-                                                                        return isSameDay(recordDate, date) && historyBook === book;
-                                                                    })?.date.split('T')[0]}
-                                                                </div>
-                                                            </button>
-                                                        ) : (
-                                                            range ? (
-                                                                <div className="flex flex-col items-center w-full">
-                                                                    <div className={`text-xs font-medium mb-2 ${isFutureLearning ? 'text-red-500' : 'text-blue-400'}`}>
-                                                                        {isFutureLearning ? '학습 예정' : '이전 범위'}
-                                                                    </div>
-                                                                    <button
-                                                                        onClick={() => handleStartStudy(date, book, range)}
-                                                                        className={`
-                                                                            w-full py-2 px-4 rounded-lg text-sm font-bold transition-all flex items-center justify-center space-x-1
-                                                                            ${isFutureLearning
-                                                                                ? 'bg-red-500 text-white hover:bg-red-600 shadow-sm'
-                                                                                : 'bg-blue-100 text-blue-500 hover:bg-blue-200'
-                                                                            }
-                                                                        `}
-                                                                    >
-                                                                        학습하기
-                                                                    </button>
-                                                                </div>
-                                                            ) : (
-                                                                <div className="text-xs text-gray-300 mt-4">-</div>
-                                                            )
-                                                        )}
+                                                        <button
+                                                            onClick={() => handleStartStudy(date, book, range)}
+                                                            disabled={!range}
+                                                            className={`
+                                                                w-full px-2 py-1.5 sm:px-4 sm:py-2 rounded-lg text-[10px] sm:text-sm font-bold transition-all shadow-sm
+                                                                ${!range
+                                                                    ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                                                                    : isDone
+                                                                        ? 'bg-green-500 text-white hover:bg-green-600 shadow-green-200'
+                                                                        : isFutureLearning
+                                                                            ? 'bg-red-500 text-white hover:bg-red-600 shadow-red-200'
+                                                                            : 'bg-blue-200 text-blue-800 hover:bg-blue-300 shadow-blue-100'
+                                                                }
+                                                            `}
+                                                        >
+                                                            {isDone ? '완료' : isFutureLearning ? '학습하기' : '이전 범위'}
+                                                        </button>
                                                     </div>
                                                 </td>
                                             );
