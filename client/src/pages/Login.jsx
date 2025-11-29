@@ -91,6 +91,13 @@ export default function Login() {
                 await setDoc(doc(db, 'users', user.uid), userData);
             }
 
+            // Check if student is suspended (only for students, not admins)
+            if (userData.role === 'student' && userData.status === 'suspended') {
+                setError('휴원 중인 학생은 로그인할 수 없습니다. 관리자에게 문의하세요.');
+                setLoading(false);
+                return;
+            }
+
             localStorage.setItem('token', await user.getIdToken());
             localStorage.setItem('role', userData.role);
             localStorage.setItem('username', userData.username);

@@ -90,34 +90,7 @@ export default function AdminDashboard() {
         }
     };
 
-    const handleBackup = async () => {
-        if (!window.confirm('모든 데이터를 백업하시겠습니까?')) return;
 
-        try {
-            const collections = ['users', 'classes', 'words', 'test_results'];
-            const backupData = {};
-
-            for (const colName of collections) {
-                const querySnapshot = await getDocs(collection(db, colName));
-                backupData[colName] = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            }
-
-            const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
-            const url = URL.createObjectURL(blob);
-            const a = document.createElement('a');
-            a.href = url;
-            a.download = `backup_${new Date().toISOString().split('T')[0]}.json`;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
-            URL.revokeObjectURL(url);
-
-            alert('백업이 완료되었습니다.');
-        } catch (err) {
-            console.error("Backup failed:", err);
-            alert('백업 중 오류가 발생했습니다.');
-        }
-    };
 
     const handleResultClick = (result) => {
         setSelectedResult(result);

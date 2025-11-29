@@ -245,7 +245,11 @@ export default function StudentManagement() {
             setStudents(students.map(s =>
                 s.id === student.id ? { ...s, status: newStatus } : s
             ));
-            alert(`상태가 ${newStatus === 'active' ? '정상' : '휴원'}으로 변경되었습니다.`);
+
+            // Auto-switch filter to 'all' so user can see the result
+            setSelectedStatus('all');
+
+            alert(`상태가 ${newStatus === 'active' ? '정상' : '휴원'}으로 변경되었습니다.\n필터가 '전체 상태'로 변경되었습니다.`);
         } catch (err) {
             console.error(err);
             alert('상태 변경 실패: ' + err.message);

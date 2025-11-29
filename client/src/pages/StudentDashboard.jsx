@@ -157,14 +157,13 @@ export default function StudentDashboard() {
                 historyData.sort((a, b) => new Date(b.date) - new Date(a.date));
                 setHistory(historyData);
 
-                // Fetch Word Counts
-                const wordsSnap = await getDocs(collection(db, 'words'));
+                // Fetch Word Counts from 'books' collection (Optimized)
+                const booksQuery = query(collection(db, 'books'), where('academyId', '==', academyId));
+                const booksSnap = await getDocs(booksQuery);
                 const counts = {};
-                wordsSnap.docs.forEach(doc => {
+                booksSnap.docs.forEach(doc => {
                     const data = doc.data();
-                    if (data.book_name) {
-                        counts[data.book_name] = (counts[data.book_name] || 0) + 1;
-                    }
+                    counts[data.name] = data.totalWords;
                 });
                 setBookCounts(counts);
 

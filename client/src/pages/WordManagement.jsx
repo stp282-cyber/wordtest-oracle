@@ -2,7 +2,7 @@ import React, { useState, useEffect, useCallback } from 'react';
 import { Upload, Trash2, Plus, BookOpen, Edit2, Save, X, AlertTriangle, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
-import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch, updateDoc, query, where } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch, updateDoc, query, where, increment, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function WordManagement() {
     const [words, setWords] = useState([]);
@@ -84,6 +84,26 @@ export default function WordManagement() {
                 await batch.commit();
             }
 
+            // Update books collection counts
+            const bookCounts = {};
+            wordsToUpload.forEach(word => {
+                const bookName = word.book_name || '기본';
+                bookCounts[bookName] = (bookCounts[bookName] || 0) + 1;
+            });
+
+            const batch = writeBatch(db);
+            for (const [bookName, count] of Object.entries(bookCounts)) {
+                const bookId = `${academyId}_${bookName}`;
+                const bookRef = doc(db, 'books', bookId);
+                batch.set(bookRef, {
+                    academyId,
+                    name: bookName,
+                    totalWords: increment(count),
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            }
+            await batch.commit();
+
             alert(`${wordsToUpload.length}개의 단어가 추가되었습니다!`);
             fetchWords();
         } catch (err) {
@@ -103,6 +123,17 @@ export default function WordManagement() {
                 word_number: newWord.word_number ? parseInt(newWord.word_number) : null,
                 academyId // Add academyId
             });
+
+            // Update books collection
+            const bookId = `${academyId}_${newWord.book_name}`;
+            const bookRef = doc(db, 'books', bookId);
+            await setDoc(bookRef, {
+                academyId,
+                name: newWord.book_name,
+                totalWords: increment(1),
+                updatedAt: serverTimestamp()
+            }, { merge: true });
+
             setNewWord({ book_name: '기본', word_number: '', english: '', korean: '' });
             fetchWords();
         } catch (err) {
@@ -115,7 +146,24 @@ export default function WordManagement() {
         if (!confirm('이 단어를 삭제하시겠습니까?')) return;
 
         try {
-            await deleteDoc(doc(db, 'words', id));
+            const wordRef = doc(db, 'words', id);
+            const wordDoc = await getDoc(wordRef);
+
+            if (wordDoc.exists()) {
+                const wordData = wordDoc.data();
+                const academyId = wordData.academyId || 'academy_default';
+                const bookName = wordData.book_name || '기본';
+
+                await deleteDoc(wordRef);
+
+                // Update books collection
+                const bookId = `${academyId}_${bookName}`;
+                const bookRef = doc(db, 'books', bookId);
+                await updateDoc(bookRef, {
+                    totalWords: increment(-1)
+                });
+            }
+
             fetchWords();
         } catch (err) {
             alert('삭제 실패: ' + err.message);
@@ -156,6 +204,11 @@ export default function WordManagement() {
             snapshot.docs.forEach(doc => {
                 batch.delete(doc.ref);
             });
+
+            // Delete book metadata
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            const bookId = `${academyId}_${filterBookName}`;
+            batch.delete(doc(db, 'books', bookId));
 
             await batch.commit();
             alert(`'${filterBookName}' 단어장이 삭제되었습니다.`);

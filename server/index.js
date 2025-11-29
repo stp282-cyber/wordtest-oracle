@@ -94,20 +94,46 @@ app.post('/api/student/status', verifyToken, async (req, res) => {
     try {
         const db = admin.firestore();
         const studentRef = db.collection('users').doc(studentId);
+        const academyRef = db.collection('academies').doc(academyId);
 
-        // Update student status
-        await studentRef.update({
-            status: status,
-            status_updated_at: admin.firestore.FieldValue.serverTimestamp()
-        });
+        await db.runTransaction(async (t) => {
+            const studentDoc = await t.get(studentRef);
+            if (!studentDoc.exists) {
+                throw new Error("Student not found");
+            }
+            const currentStatus = studentDoc.data().status || 'active';
 
-        // Log the status change
-        await db.collection('student_status_logs').add({
-            student_id: studentId,
-            academy_id: academyId,
-            status: status,
-            changed_at: admin.firestore.FieldValue.serverTimestamp(),
-            changed_by: req.user.uid
+            if (currentStatus === status) return; // No change
+
+            // Update student status
+            t.update(studentRef, {
+                status: status,
+                status_updated_at: admin.firestore.FieldValue.serverTimestamp()
+            });
+
+            // Log the status change
+            t.set(db.collection('student_status_logs').doc(), {
+                student_id: studentId,
+                academy_id: academyId,
+                status: status,
+                changed_at: admin.firestore.FieldValue.serverTimestamp(),
+                changed_by: req.user.uid
+            });
+
+            // Update counters
+            if (status === 'suspended') {
+                // Active -> Suspended
+                t.update(academyRef, {
+                    activeStudents: admin.firestore.FieldValue.increment(-1),
+                    suspendedStudents: admin.firestore.FieldValue.increment(1)
+                });
+            } else if (status === 'active') {
+                // Suspended -> Active
+                t.update(academyRef, {
+                    activeStudents: admin.firestore.FieldValue.increment(1),
+                    suspendedStudents: admin.firestore.FieldValue.increment(-1)
+                });
+            }
         });
 
         res.status(200).json({ message: `Student status updated to ${status}` });
