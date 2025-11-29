@@ -231,6 +231,47 @@ export default function WordManagement() {
         XLSX.writeFile(wb, '단어장_템플릿.xlsx');
     };
 
+    const generateBooksCollection = async () => {
+        if (!confirm('기존 단어 데이터를 기반으로 단어장 목록을 생성하시겠습니까?\n\n이 작업은 words 컬렉션의 모든 단어를 스캔하여 books 컬렉션을 생성/업데이트합니다.')) {
+            return;
+        }
+
+        try {
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+            // Fetch all words for this academy
+            const q = query(collection(db, 'words'), where('academyId', '==', academyId));
+            const snapshot = await getDocs(q);
+
+            // Count words by book name
+            const bookCounts = {};
+            snapshot.docs.forEach(doc => {
+                const bookName = doc.data().book_name || '기본';
+                bookCounts[bookName] = (bookCounts[bookName] || 0) + 1;
+            });
+
+            // Create/update books collection
+            const batch = writeBatch(db);
+            for (const [bookName, count] of Object.entries(bookCounts)) {
+                const bookId = `${academyId}_${bookName}`;
+                const bookRef = doc(db, 'books', bookId);
+                batch.set(bookRef, {
+                    academyId,
+                    name: bookName,
+                    totalWords: count,
+                    updatedAt: serverTimestamp()
+                }, { merge: true });
+            }
+            await batch.commit();
+
+            alert(`✅ 단어장 목록 생성 완료!\n\n총 ${Object.keys(bookCounts).length}개의 단어장이 생성되었습니다:\n${Object.entries(bookCounts).map(([name, count]) => `- ${name}: ${count}단어`).join('\n')}`);
+
+        } catch (error) {
+            console.error('Error generating books collection:', error);
+            alert('단어장 목록 생성 중 오류가 발생했습니다: ' + error.message);
+        }
+    };
+
     const filteredWords = filterBookName === '전체' ? words : words.filter(w => w.book_name === filterBookName);
 
     const handleDownloadExcel = () => {
@@ -279,6 +320,10 @@ export default function WordManagement() {
                         </label>
                         <button onClick={downloadTemplate} className="flex items-center px-6 py-3 bg-gray-100 text-gray-700 rounded-xl hover:bg-gray-200 transition-all">
                             <span>📥 템플릿 다운로드</span>
+                        </button>
+                        <button onClick={generateBooksCollection} className="flex items-center px-6 py-3 bg-green-600 text-white rounded-xl hover:bg-green-700 transition-all">
+                            <BookOpen className="w-5 h-5 mr-2" />
+                            <span>단어장 목록 생성</span>
                         </button>
                     </div>
                     <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">

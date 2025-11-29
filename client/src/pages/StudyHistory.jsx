@@ -18,17 +18,34 @@ export default function StudyHistory() {
         const userId = targetUserId || localStorage.getItem('userId');
         try {
             // Fetch Test Results
-            const q = query(
-                collection(db, 'test_results'),
-                where('user_id', '==', userId),
-                orderBy('date', 'desc'),
-                limit(50)
-            );
-            const querySnapshot = await getDocs(q);
-            const rawHistory = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            let rawHistory = [];
+            try {
+                const q = query(
+                    collection(db, 'test_results'),
+                    where('user_id', '==', userId),
+                    orderBy('date', 'desc'),
+                    limit(50)
+                );
+                const querySnapshot = await getDocs(q);
+                rawHistory = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } catch (queryError) {
+                console.warn("Test results index query failed, falling back to client-side sorting:", queryError);
+                const fallbackQuery = query(
+                    collection(db, 'test_results'),
+                    where('user_id', '==', userId)
+                );
+                const fallbackSnapshot = await getDocs(fallbackQuery);
+                rawHistory = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // Sort client-side
+                rawHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+                // Limit client-side
+                rawHistory = rawHistory.slice(0, 50);
+            }
 
-            // Sort by date desc
-            rawHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+            // Sort by date desc (ensure sorted even if query succeeded, though query does it)
+            // If fallback was used, it's already sorted. If query used, it's already sorted.
+            // But re-sorting doesn't hurt to be safe if we mix logic.
+            // Actually, let's trust the block above.
 
             const formattedHistory = rawHistory.map(record => {
                 let details = [];
@@ -69,33 +86,59 @@ export default function StudyHistory() {
             setHistory(formattedHistory);
 
             // Fetch Dollar History
-            const dollarQ = query(
-                collection(db, 'dollar_history'),
-                where('user_id', '==', userId),
-                orderBy('date', 'desc'),
-                limit(50)
-            );
-            const dollarSnapshot = await getDocs(dollarQ);
-            const rawDollarHistory = dollarSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            // Sort by date desc
-            rawDollarHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+            let rawDollarHistory = [];
+            try {
+                const dollarQ = query(
+                    collection(db, 'dollar_history'),
+                    where('user_id', '==', userId),
+                    orderBy('date', 'desc'),
+                    limit(50)
+                );
+                const dollarSnapshot = await getDocs(dollarQ);
+                rawDollarHistory = dollarSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            } catch (queryError) {
+                console.warn("Dollar history index query failed, falling back to client-side sorting:", queryError);
+                const fallbackQuery = query(
+                    collection(db, 'dollar_history'),
+                    where('user_id', '==', userId)
+                );
+                const fallbackSnapshot = await getDocs(fallbackQuery);
+                rawDollarHistory = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                rawDollarHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
+                rawDollarHistory = rawDollarHistory.slice(0, 50);
+            }
             setDollarHistory(rawDollarHistory);
 
             // Fetch Status Logs
             try {
-                const statusQ = query(
-                    collection(db, 'student_status_logs'),
-                    where('student_id', '==', userId),
-                    orderBy('changed_at', 'desc'),
-                    limit(50)
-                );
-                const statusSnapshot = await getDocs(statusQ);
-                const rawStatusLogs = statusSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                let rawStatusLogs = [];
+                try {
+                    const statusQ = query(
+                        collection(db, 'student_status_logs'),
+                        where('student_id', '==', userId),
+                        orderBy('changed_at', 'desc'),
+                        limit(50)
+                    );
+                    const statusSnapshot = await getDocs(statusQ);
+                    rawStatusLogs = statusSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                } catch (queryError) {
+                    console.warn("Status logs index query failed, falling back to client-side sorting:", queryError);
+                    const fallbackQuery = query(
+                        collection(db, 'student_status_logs'),
+                        where('student_id', '==', userId)
+                    );
+                    const fallbackSnapshot = await getDocs(fallbackQuery);
+                    rawStatusLogs = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    rawStatusLogs.sort((a, b) => {
+                        const dateA = a.changed_at?.toDate ? a.changed_at.toDate() : new Date(a.changed_at);
+                        const dateB = b.changed_at?.toDate ? b.changed_at.toDate() : new Date(b.changed_at);
+                        return dateB - dateA;
+                    });
+                    rawStatusLogs = rawStatusLogs.slice(0, 50);
+                }
                 setStatusLogs(rawStatusLogs);
             } catch (e) {
                 console.error("Error fetching status logs:", e);
-                // Might fail if index is missing, but basic query should work or we catch it
             }
 
         } catch (err) {

@@ -153,13 +153,27 @@ export default function BattleRoom() {
 
                     // 3. Fetch words by indices
                     // Firestore 'in' limit is 10. Perfect.
-                    const wordsQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName),
-                        where('word_number', 'in', [...indices])
-                    );
-                    const wordsSnap = await getDocs(wordsQuery);
-                    targetWords = wordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    try {
+                        const wordsQuery = query(
+                            collection(db, 'words'),
+                            where('book_name', '==', bookName),
+                            where('word_number', 'in', [...indices])
+                        );
+                        const wordsSnap = await getDocs(wordsQuery);
+                        targetWords = wordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    } catch (queryError) {
+                        console.warn("Battle words index query failed, falling back to client-side filtering:", queryError);
+                        const fallbackQuery = query(
+                            collection(db, 'words'),
+                            where('book_name', '==', bookName)
+                        );
+                        const fallbackSnap = await getDocs(fallbackQuery);
+                        const allBookWords = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                        // Filter by indices
+                        const indicesSet = new Set([...indices]);
+                        targetWords = allBookWords.filter(w => indicesSet.has(w.word_number));
+                    }
                 }
             }
 

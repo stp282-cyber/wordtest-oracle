@@ -37,8 +37,8 @@ export default function StudentDashboard() {
     const getInitialWeekStart = () => {
         const today = new Date();
         const dayOfWeek = getDay(today);
-        // If Saturday (6) or Sunday (0), show next week
-        if (dayOfWeek === 6 || dayOfWeek === 0) {
+        // If Saturday (6), show next week. Sunday (0) is start of week, so show current week.
+        if (dayOfWeek === 6) {
             return startOfWeek(addWeeks(today, 1), { weekStartsOn: 0 });
         }
         return startOfWeek(today, { weekStartsOn: 0 });
@@ -53,6 +53,7 @@ export default function StudentDashboard() {
     useEffect(() => {
         const fetchDashboard = async () => {
             if (!userId) return;
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
 
             try {
                 // Fetch User Settings
@@ -98,9 +99,8 @@ export default function StudentDashboard() {
 
                     setSettings(userData);
 
-                    // Fetch Announcements
+                    // academyId is already defined at the top of the function
                     const announcementsRef = collection(db, 'announcements');
-                    const academyId = localStorage.getItem('academyId') || 'academy_default';
 
                     // Base query: filter by academyId
                     const baseQueryConstraints = [where('academyId', '==', academyId)];

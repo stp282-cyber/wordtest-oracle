@@ -16,18 +16,47 @@ export default function SurvivalLobby() {
     const userId = localStorage.getItem('userId');
     const userName = localStorage.getItem('name') || localStorage.getItem('username') || 'Unknown';
 
-    // Fetch available books
-    useEffect(() => {
-        const fetchBooks = async () => {
-            try {
-                const q = query(collection(db, 'books'));
-                const snapshot = await getDocs(q);
-                const books = snapshot.docs.map(doc => doc.data().bookName).filter(Boolean);
-                setAvailableBooks(books);
-            } catch (error) {
-                console.error("Error fetching books:", error);
+    // Fetch available books (Optimized with Caching)
+    const fetchBooks = async (forceRefresh = false) => {
+        const academyId = localStorage.getItem('academyId') || 'academy_default';
+        const cacheKey = `books_${academyId}`;
+        const cachedData = localStorage.getItem(cacheKey);
+        const cacheTime = localStorage.getItem(`${cacheKey}_time`);
+        const ONE_HOUR = 60 * 60 * 1000;
+
+        if (!forceRefresh && cachedData && cacheTime && (Date.now() - parseInt(cacheTime) < ONE_HOUR)) {
+            const parsedBooks = JSON.parse(cachedData);
+            if (parsedBooks.length > 0) {
+                console.log("Using cached books list");
+                setAvailableBooks(parsedBooks);
+                return;
             }
-        };
+        }
+
+        try {
+            setLoading(true);
+            const q = query(collection(db, 'books'), where('academyId', '==', academyId));
+            const snapshot = await getDocs(q);
+            const books = snapshot.docs.map(doc => ({
+                name: doc.data().name,
+                totalWords: doc.data().totalWords || 0
+            })).filter(b => b.name);
+
+            if (books.length > 0) {
+                setAvailableBooks(books);
+                localStorage.setItem(cacheKey, JSON.stringify(books));
+                localStorage.setItem(`${cacheKey}_time`, Date.now().toString());
+            } else {
+                console.warn("No books found for this academy.");
+            }
+        } catch (error) {
+            console.error("Error fetching books:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    useEffect(() => {
         fetchBooks();
     }, []);
 
@@ -262,16 +291,28 @@ export default function SurvivalLobby() {
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-400 mb-1">단어장 선택</label>
-                                <select
-                                    value={selectedBook}
-                                    onChange={(e) => setSelectedBook(e.target.value)}
-                                    className="w-full px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-white"
-                                >
-                                    <option value="">전체 단어 (랜덤)</option>
-                                    {availableBooks.map(book => (
-                                        <option key={book} value={book}>{book}</option>
-                                    ))}
-                                </select>
+                                <div className="flex space-x-2">
+                                    <select
+                                        value={selectedBook}
+                                        onChange={(e) => setSelectedBook(e.target.value)}
+                                        className="flex-1 px-4 py-3 bg-gray-900 border border-gray-700 rounded-xl focus:ring-2 focus:ring-red-500 outline-none text-white"
+                                    >
+                                        <option value="">전체 단어 (랜덤)</option>
+                                        {availableBooks.map((book, index) => (
+                                            <option key={index} value={book.name}>
+                                                {book.name} ({book.totalWords}단어)
+                                            </option>
+                                        ))}
+                                    </select>
+                                    <button
+                                        type="button"
+                                        onClick={() => fetchBooks(true)}
+                                        className="px-3 py-3 bg-gray-700 text-gray-300 rounded-xl hover:bg-gray-600 transition-colors"
+                                        title="단어장 목록 새로고침"
+                                    >
+                                        <Zap className="w-5 h-5" />
+                                    </button>
+                                </div>
                             </div>
                             <div>
                                 <label className="block text-sm font-bold text-gray-400 mb-1">비밀번호 (선택)</label>

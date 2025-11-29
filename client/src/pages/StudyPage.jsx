@@ -64,15 +64,32 @@ export default function StudyPage() {
 
                 setRangeInfo({ start: startWordNumber, end: endWordNumber });
 
-                // 3. Fetch Words (Fetch only target range)
-                const wordsQuery = query(
-                    collection(db, 'words'),
-                    where('book_name', '==', currentBookName),
-                    where('word_number', '>=', startWordNumber),
-                    where('word_number', '<', endWordNumber)
-                );
-                const querySnapshot = await getDocs(wordsQuery);
-                const targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // 3. Fetch Words (Try optimized range query first, fallback to client-side filtering)
+                let targetWords = [];
+                try {
+                    const wordsQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', currentBookName),
+                        where('word_number', '>=', startWordNumber),
+                        where('word_number', '<', endWordNumber)
+                    );
+                    const querySnapshot = await getDocs(wordsQuery);
+                    targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                } catch (queryError) {
+                    console.warn("Index query failed, falling back to client-side filtering:", queryError);
+                    // Fallback: Fetch all words for the book and filter
+                    const fallbackQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', currentBookName)
+                    );
+                    const fallbackSnapshot = await getDocs(fallbackQuery);
+                    const allBookWords = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                    targetWords = allBookWords.filter(w => {
+                        const wn = parseInt(w.word_number);
+                        return wn >= startWordNumber && wn < endWordNumber;
+                    });
+                }
 
                 // Debug Info (Updated for range query)
                 setDebugInfo({
@@ -81,7 +98,7 @@ export default function StudyPage() {
                     lastWord: targetWords[targetWords.length - 1] || null
                 });
 
-                // 4. Sort (Filtering is done by DB)
+                // 4. Sort (Filtering is done by DB or Client)
                 targetWords.sort((a, b) => parseInt(a.word_number) - parseInt(b.word_number));
 
                 setWords(targetWords);

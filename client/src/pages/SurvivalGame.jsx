@@ -312,15 +312,29 @@ export default function SurvivalGame() {
                     batches.push(indexArray.slice(i, i + 10));
                 }
 
-                const promises = batches.map(batch => {
-                    const q = query(collection(db, 'words'), where('book_name', '==', targetBook), where('word_number', 'in', batch));
-                    return getDocs(q);
-                });
+                try {
+                    const promises = batches.map(batch => {
+                        const q = query(collection(db, 'words'), where('book_name', '==', targetBook), where('word_number', 'in', batch));
+                        return getDocs(q);
+                    });
 
-                const snapshots = await Promise.all(promises);
-                snapshots.forEach(snap => {
-                    snap.docs.forEach(d => gameWords.push(d.data()));
-                });
+                    const snapshots = await Promise.all(promises);
+                    snapshots.forEach(snap => {
+                        snap.docs.forEach(d => gameWords.push(d.data()));
+                    });
+                } catch (queryError) {
+                    console.warn("Survival words index query failed, falling back to client-side filtering:", queryError);
+                    const fallbackQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', targetBook)
+                    );
+                    const fallbackSnap = await getDocs(fallbackQuery);
+                    const allBookWords = fallbackSnap.docs.map(doc => doc.data());
+
+                    // Filter by indices
+                    const indicesSet = new Set(indexArray);
+                    gameWords = allBookWords.filter(w => indicesSet.has(w.word_number));
+                }
             } else {
                 // Fallback (metadata missing): fetch all (should be rare if migration ran)
                 const q = query(collection(db, 'words'), where('book_name', '==', targetBook));

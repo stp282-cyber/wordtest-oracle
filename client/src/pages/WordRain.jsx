@@ -40,15 +40,33 @@ export default function WordRain() {
                 let targetWords = [];
 
                 if (studyStartIndex && studyEndIndex && bookName) {
-                    // Optimized Range Query
-                    const q = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName),
-                        where('word_number', '>=', parseInt(studyStartIndex)),
-                        where('word_number', '<', parseInt(studyEndIndex))
-                    );
-                    const querySnapshot = await getDocs(q);
-                    targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    // Optimized Range Query with Fallback
+                    try {
+                        const q = query(
+                            collection(db, 'words'),
+                            where('book_name', '==', bookName),
+                            where('word_number', '>=', parseInt(studyStartIndex)),
+                            where('word_number', '<', parseInt(studyEndIndex))
+                        );
+                        const querySnapshot = await getDocs(q);
+                        targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    } catch (queryError) {
+                        console.warn("Index query failed, falling back to client-side filtering:", queryError);
+                        const fallbackQuery = query(
+                            collection(db, 'words'),
+                            where('book_name', '==', bookName)
+                        );
+                        const fallbackSnapshot = await getDocs(fallbackQuery);
+                        const allBookWords = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+                        const start = parseInt(studyStartIndex);
+                        const end = parseInt(studyEndIndex);
+
+                        targetWords = allBookWords.filter(w => {
+                            const wn = parseInt(w.word_number);
+                            return wn >= start && wn < end;
+                        });
+                    }
                 } else {
                     // Fallback: Fetch random words or redirect
                     // For now, let's redirect to prevent errors

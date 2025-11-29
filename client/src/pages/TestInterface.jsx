@@ -118,38 +118,94 @@ export default function TestInterface() {
                 // 3. Fetch Words (Optimized: Split queries)
 
                 // Fetch New Words
-                const newWordsQuery = query(
-                    collection(db, 'words'),
-                    where('book_name', '==', bookName),
-                    where('word_number', '>=', startWordNumber),
-                    where('word_number', '<', endWordNumber)
-                );
-                const newWordsSnap = await getDocs(newWordsQuery);
-                const newWordsData = newWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-                    .sort((a, b) => a.word_number - b.word_number);
+                // Fetch New Words
+                let newWordsData = [];
+                try {
+                    const newWordsQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName),
+                        where('word_number', '>=', startWordNumber),
+                        where('word_number', '<', endWordNumber)
+                    );
+                    const newWordsSnap = await getDocs(newWordsQuery);
+                    newWordsData = newWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                        .sort((a, b) => a.word_number - b.word_number);
+                } catch (queryError) {
+                    console.warn("New words index query failed, falling back to client-side filtering:", queryError);
+                    const fallbackQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName)
+                    );
+                    const fallbackSnap = await getDocs(fallbackQuery);
+                    const allBookWords = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    newWordsData = allBookWords
+                        .filter(w => {
+                            const wn = parseInt(w.word_number);
+                            return wn >= startWordNumber && wn < endWordNumber;
+                        })
+                        .sort((a, b) => a.word_number - b.word_number);
+                }
 
                 // Fetch Review Words
-                const reviewWordsQuery = query(
-                    collection(db, 'words'),
-                    where('book_name', '==', bookName),
-                    where('word_number', '>=', reviewStartWordNumber),
-                    where('word_number', '<', reviewEndWordNumber)
-                );
-                const reviewWordsSnap = await getDocs(reviewWordsQuery);
-                const reviewWordsData = reviewWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-                    .sort((a, b) => a.word_number - b.word_number);
+                let reviewWordsData = [];
+                try {
+                    const reviewWordsQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName),
+                        where('word_number', '>=', reviewStartWordNumber),
+                        where('word_number', '<', reviewEndWordNumber)
+                    );
+                    const reviewWordsSnap = await getDocs(reviewWordsQuery);
+                    reviewWordsData = reviewWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                        .sort((a, b) => a.word_number - b.word_number);
+                } catch (queryError) {
+                    console.warn("Review words index query failed, falling back to client-side filtering:", queryError);
+                    // Reuse the fallback query if possible, but for simplicity re-fetch or use a separate fallback
+                    // Since we might have already fetched all words in the first catch block, we could optimize, 
+                    // but to keep logic simple and robust (in case only one fails), we'll query again or just query once if we could share state.
+                    // For safety and simplicity in this patch, I'll just run the fallback query again.
+                    const fallbackQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName)
+                    );
+                    const fallbackSnap = await getDocs(fallbackQuery);
+                    const allBookWords = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    reviewWordsData = allBookWords
+                        .filter(w => {
+                            const wn = parseInt(w.word_number);
+                            return wn >= reviewStartWordNumber && wn < reviewEndWordNumber;
+                        })
+                        .sort((a, b) => a.word_number - b.word_number);
+                }
 
                 // Fetch Max Word Number (Efficiently)
                 let maxNum = 0;
-                const lastWordQuery = query(
-                    collection(db, 'words'),
-                    where('book_name', '==', bookName),
-                    orderBy('word_number', 'desc'),
-                    limit(1)
-                );
-                const lastWordSnap = await getDocs(lastWordQuery);
-                if (!lastWordSnap.empty) {
-                    maxNum = lastWordSnap.docs[0].data().word_number;
+                try {
+                    const lastWordQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName),
+                        orderBy('word_number', 'desc'),
+                        limit(1)
+                    );
+                    const lastWordSnap = await getDocs(lastWordQuery);
+                    if (!lastWordSnap.empty) {
+                        maxNum = lastWordSnap.docs[0].data().word_number;
+                    }
+                } catch (queryError) {
+                    console.warn("Max word index query failed, falling back to client-side calculation:", queryError);
+                    const fallbackQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName)
+                    );
+                    const fallbackSnap = await getDocs(fallbackQuery);
+                    if (!fallbackSnap.empty) {
+                        const allWords = fallbackSnap.docs.map(doc => doc.data());
+                        // Find max word_number
+                        maxNum = allWords.reduce((max, word) => {
+                            const num = parseInt(word.word_number || 0);
+                            return num > max ? num : max;
+                        }, 0);
+                    }
                 }
                 setMaxWordNumber(maxNum);
 
