@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Users } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, getDocs, addDoc, deleteDoc, doc } from 'firebase/firestore';
+import { collection, getDocs, addDoc, deleteDoc, doc, query, where } from 'firebase/firestore';
 
 export default function ClassManagement() {
     const [classes, setClasses] = useState([]);
@@ -16,7 +16,10 @@ export default function ClassManagement() {
 
     const fetchClasses = async () => {
         try {
-            const querySnapshot = await getDocs(collection(db, 'classes'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            // Filter classes by academyId
+            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
+            const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setClasses(data);
         } catch (err) {
@@ -32,12 +35,14 @@ export default function ClassManagement() {
         if (!newClassName.trim()) return;
 
         try {
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
             const docRef = await addDoc(collection(db, 'classes'), {
                 name: newClassName,
-                created_at: new Date().toISOString()
+                created_at: new Date().toISOString(),
+                academyId // Add academyId
             });
 
-            setClasses([...classes, { id: docRef.id, name: newClassName, created_at: new Date().toISOString() }]);
+            setClasses([...classes, { id: docRef.id, name: newClassName, created_at: new Date().toISOString(), academyId }]);
             setNewClassName('');
         } catch (err) {
             console.error(err);

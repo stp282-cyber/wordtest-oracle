@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where } from 'firebase/firestore';
 import { Plus, Trash2, Megaphone, Users } from 'lucide-react';
 
 export default function AnnouncementManagement() {
@@ -11,7 +11,10 @@ export default function AnnouncementManagement() {
 
     const fetchClasses = async () => {
         try {
-            const snapshot = await getDocs(collection(db, 'classes'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            // Filter classes by academyId
+            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
+            const snapshot = await getDocs(q);
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setClasses(data);
         } catch (error) {
@@ -21,7 +24,13 @@ export default function AnnouncementManagement() {
 
     const fetchAnnouncements = async () => {
         try {
-            const q = query(collection(db, 'announcements'), orderBy('createdAt', 'desc'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            // Filter announcements by academyId
+            const q = query(
+                collection(db, 'announcements'),
+                where('academyId', '==', academyId),
+                orderBy('createdAt', 'desc')
+            );
             const snapshot = await getDocs(q);
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setAnnouncements(data);
@@ -49,11 +58,14 @@ export default function AnnouncementManagement() {
                 ? '전체'
                 : classes.find(c => c.id === newAnnouncement.targetClassId)?.name || 'Unknown';
 
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+
             await addDoc(collection(db, 'announcements'), {
                 ...newAnnouncement,
                 targetClassName,
                 createdAt: new Date().toISOString(),
-                authorName: '선생님' // Assuming admin is always '선생님' for now
+                authorName: '선생님', // Assuming admin is always '선생님' for now
+                academyId // Add academyId
             });
 
             setNewAnnouncement({ title: '', content: '', targetClassId: 'all' });

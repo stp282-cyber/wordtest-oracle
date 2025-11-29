@@ -27,27 +27,13 @@ export default function Login() {
 
             // Get user data from Firestore
             const userDoc = await getDoc(doc(db, 'users', user.uid));
+            let userData;
 
             if (userDoc.exists()) {
-                const userData = userDoc.data();
-                localStorage.setItem('token', await user.getIdToken());
-                localStorage.setItem('role', userData.role);
-                localStorage.setItem('username', userData.username);
-                localStorage.setItem('name', userData.name);
-                localStorage.setItem('userId', user.uid);
-
-                if (userData.role === 'admin') {
-                    navigate('/admin');
-                } else {
-                    // Update last_login for students
-                    await updateDoc(doc(db, 'users', user.uid), {
-                        last_login: new Date().toISOString().split('T')[0] // Store as YYYY-MM-DD for easier comparison
-                    });
-                    navigate('/student');
-                }
+                userData = userDoc.data();
             } else {
                 // Auto-recover: Create missing Firestore document
-                const newUserData = {
+                userData = {
                     username: email,
                     name: email.split('@')[0],
                     role: 'student', // Default to student
@@ -55,27 +41,42 @@ export default function Login() {
                     current_word_index: 0,
                     words_per_session: 10,
                     book_name: '기본',
-                    study_days: '1,2,3,4,5'
+                    study_days: '1,2,3,4,5',
+                    academyId: 'academy_default' // Default academy for recovered users
                 };
+            }
 
-                // Special case for the developer/owner to get admin access if needed
-                if (email.includes('stp282')) {
-                    newUserData.role = 'admin';
+            // Special case for the developer/owner to get admin access if needed
+            if (email.includes('stp282')) {
+                userData.role = 'super_admin'; // Grant Super Admin
+                // Ensure this is updated in Firestore
+                await setDoc(doc(db, 'users', user.uid), { role: 'super_admin' }, { merge: true });
+            }
+
+            // If it was a new user, save the full data
+            if (!userDoc.exists()) {
+                await setDoc(doc(db, 'users', user.uid), userData);
+            }
+
+            localStorage.setItem('token', await user.getIdToken());
+            localStorage.setItem('role', userData.role);
+            localStorage.setItem('username', userData.username);
+            localStorage.setItem('name', userData.name);
+            localStorage.setItem('userId', user.uid);
+            localStorage.setItem('academyId', userData.academyId || 'academy_default');
+
+            if (userData.role === 'admin') {
+                navigate('/admin');
+            } else if (userData.role === 'super_admin') {
+                navigate('/super-admin');
+            } else {
+                // Update last_login for students
+                if (userDoc.exists()) {
+                    await updateDoc(doc(db, 'users', user.uid), {
+                        last_login: new Date().toISOString().split('T')[0]
+                    });
                 }
-
-                await setDoc(doc(db, 'users', user.uid), newUserData);
-
-                localStorage.setItem('token', await user.getIdToken());
-                localStorage.setItem('role', newUserData.role);
-                localStorage.setItem('username', newUserData.username);
-                localStorage.setItem('name', newUserData.name);
-                localStorage.setItem('userId', user.uid);
-
-                if (newUserData.role === 'admin') {
-                    navigate('/admin');
-                } else {
-                    navigate('/student');
-                }
+                navigate('/student');
             }
         } catch (err) {
             console.error(err);

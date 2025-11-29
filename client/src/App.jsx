@@ -20,6 +20,8 @@ import BattleLobby from './pages/BattleLobby';
 import BattleRoom from './pages/BattleRoom';
 import SurvivalLobby from './pages/SurvivalLobby';
 import SurvivalGame from './pages/SurvivalGame';
+import MigrationTool from './pages/MigrationTool';
+import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import Layout from './components/Layout';
 
 const PrivateRoute = ({ children, role }) => {
@@ -203,7 +205,25 @@ function App() {
                 </PrivateRoute>
               }
             />
+            <Route
+              path="/migration"
+              element={
+                <PrivateRoute role="admin">
+                  <MigrationTool />
+                </PrivateRoute>
+              }
+            />
           </Route>
+
+          {/* Super Admin Routes - No Layout for full immersion or different layout */}
+          <Route
+            path="/super-admin"
+            element={
+              <PrivateRoute role="super_admin">
+                <SuperAdminDashboard />
+              </PrivateRoute>
+            }
+          />
 
           {/* Default Redirect */}
           <Route path="/" element={<Navigate to="/login" />} />

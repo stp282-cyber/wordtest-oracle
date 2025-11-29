@@ -17,7 +17,8 @@ export default function DollarManagement() {
     useEffect(() => {
         const fetchSettings = async () => {
             try {
-                const docRef = doc(db, 'settings', 'rewards');
+                const academyId = localStorage.getItem('academyId') || 'academy_default';
+                const docRef = doc(db, 'settings', `rewards_${academyId}`);
                 const docSnap = await getDoc(docRef);
                 if (docSnap.exists()) {
                     setSettings(prev => ({ ...prev, ...docSnap.data() }));
@@ -43,7 +44,8 @@ export default function DollarManagement() {
     const handleSave = async () => {
         setSaving(true);
         try {
-            const docRef = doc(db, 'settings', 'rewards');
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            const docRef = doc(db, 'settings', `rewards_${academyId}`);
             await setDoc(docRef, settings, { merge: true });
             alert('설정이 저장되었습니다.');
         } catch (error) {

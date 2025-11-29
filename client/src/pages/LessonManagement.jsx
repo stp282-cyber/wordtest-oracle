@@ -39,16 +39,24 @@ export default function LessonManagement() {
     const fetchData = useCallback(async () => {
         setLoading(true);
         try {
-            const q = query(collection(db, 'users'), where('role', '==', 'student'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+            const q = query(
+                collection(db, 'users'),
+                where('role', '==', 'student'),
+                where('academyId', '==', academyId)
+            );
             const studentSnap = await getDocs(q);
             const studentData = studentSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setStudents(studentData);
             setFilteredStudents(studentData);
 
-            const classSnap = await getDocs(collection(db, 'classes'));
+            const classQ = query(collection(db, 'classes'), where('academyId', '==', academyId));
+            const classSnap = await getDocs(classQ);
             setClasses(classSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })));
 
-            const bookSnap = await getDocs(collection(db, 'words'));
+            const bookQ = query(collection(db, 'words'), where('academyId', '==', academyId));
+            const bookSnap = await getDocs(bookQ);
             const bookData = bookSnap.docs.map(doc => doc.data());
             const uniqueBooks = [...new Set(bookData.map(w => w.book_name).filter(Boolean))];
             setBooks(uniqueBooks);

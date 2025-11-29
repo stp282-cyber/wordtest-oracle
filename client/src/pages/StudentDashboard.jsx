@@ -77,12 +77,28 @@ export default function StudentDashboard() {
 
                     // Fetch Announcements
                     const announcementsRef = collection(db, 'announcements');
-                    const qAll = query(announcementsRef, where('targetClassId', '==', 'all'), limit(20));
+                    const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+                    // Base query: filter by academyId
+                    const baseQueryConstraints = [where('academyId', '==', academyId)];
+
+                    // Query for 'all' classes within the academy
+                    const qAll = query(
+                        announcementsRef,
+                        ...baseQueryConstraints,
+                        where('targetClassId', '==', 'all'),
+                        limit(20)
+                    );
                     const snapAll = await getDocs(qAll);
 
                     let classAnnouncements = [];
                     if (userData.class_id) {
-                        const qClass = query(announcementsRef, where('targetClassId', '==', userData.class_id), limit(20));
+                        const qClass = query(
+                            announcementsRef,
+                            ...baseQueryConstraints,
+                            where('targetClassId', '==', userData.class_id),
+                            limit(20)
+                        );
                         const snapClass = await getDocs(qClass);
                         classAnnouncements = snapClass.docs.map(d => ({ id: d.id, ...d.data() }));
                     }

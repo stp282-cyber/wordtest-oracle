@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download, DollarSign, Edit2, Megaphone } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, doc, updateDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
 
 export default function AdminDashboard() {
     const [students, setStudents] = useState([]);
@@ -17,7 +17,12 @@ export default function AdminDashboard() {
 
     const fetchStudents = useCallback(async () => {
         try {
-            const q = query(collection(db, 'users'), where('role', '==', 'student'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            const q = query(
+                collection(db, 'users'),
+                where('role', '==', 'student'),
+                where('academyId', '==', academyId)
+            );
             const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setStudents(data);
@@ -29,7 +34,9 @@ export default function AdminDashboard() {
 
     const fetchClasses = useCallback(async () => {
         try {
-            const querySnapshot = await getDocs(collection(db, 'classes'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
+            const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setClasses(data);
         } catch (err) {
@@ -37,7 +44,25 @@ export default function AdminDashboard() {
         }
     }, []);
 
+    const [academyName, setAcademyName] = useState('');
+
     useEffect(() => {
+        const loadAcademy = async () => {
+            try {
+                const academyId = localStorage.getItem('academyId') || 'academy_default';
+                const docRef = doc(db, 'academies', academyId);
+                const docSnap = await getDoc(docRef);
+                if (docSnap.exists()) {
+                    setAcademyName(docSnap.data().name);
+                } else {
+                    setAcademyName('이스턴 영어 학원'); // Fallback
+                }
+            } catch (err) {
+                console.error("Error fetching academy:", err);
+                setAcademyName('이스턴 영어 학원');
+            }
+        };
+        loadAcademy();
         fetchStudents();
         fetchClasses();
         // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -135,7 +160,10 @@ export default function AdminDashboard() {
                         <div className="p-3 bg-indigo-600 rounded-lg">
                             <Users className="w-6 h-6 text-white" />
                         </div>
-                        <h1 className="text-2xl font-bold text-gray-900">선생님 대시보드</h1>
+                        <div>
+                            <h1 className="text-2xl font-bold text-gray-900">선생님 대시보드</h1>
+                            <p className="text-sm text-gray-500">{academyName || 'Loading...'}</p>
+                        </div>
                     </div>
                     <div className="flex items-center space-x-3">
                         <button

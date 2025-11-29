@@ -28,7 +28,13 @@ export default function StudentManagement() {
 
     const fetchStudents = useCallback(async () => {
         try {
-            const q = query(collection(db, 'users'), where('role', '==', 'student'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            // Filter students by academyId
+            const q = query(
+                collection(db, 'users'),
+                where('role', '==', 'student'),
+                where('academyId', '==', academyId)
+            );
             const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setStudents(data);
@@ -39,7 +45,10 @@ export default function StudentManagement() {
 
     const fetchClasses = useCallback(async () => {
         try {
-            const querySnapshot = await getDocs(collection(db, 'classes'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            // Filter classes by academyId
+            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
+            const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             setClasses(data);
         } catch (err) {
@@ -98,6 +107,7 @@ export default function StudentManagement() {
             const email = newStudent.username.includes('@') ? newStudent.username : `${newStudent.username}@wordtest.com`;
             const userCredential = await createUserWithEmailAndPassword(secondaryAuth, email, newStudent.password);
             const user = userCredential.user;
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
 
             await setDoc(doc(db, 'users', user.uid), {
                 username: newStudent.username,
@@ -107,7 +117,8 @@ export default function StudentManagement() {
                 book_name: '기본',
                 study_days: '1,2,3,4,5',
                 words_per_session: 10,
-                current_word_index: 0
+                current_word_index: 0,
+                academyId // Add academyId
             });
 
             alert('학생이 등록되었습니다!');

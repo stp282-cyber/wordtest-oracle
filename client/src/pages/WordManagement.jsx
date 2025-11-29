@@ -12,7 +12,10 @@ export default function WordManagement() {
 
     const fetchWords = useCallback(async () => {
         try {
-            const querySnapshot = await getDocs(collection(db, 'words'));
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            // Filter words by academyId
+            const q = query(collection(db, 'words'), where('academyId', '==', academyId));
+            const querySnapshot = await getDocs(q);
             const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
             // Sort by book_name first, then word_number
             data.sort((a, b) => {
@@ -63,6 +66,7 @@ export default function WordManagement() {
     const uploadWords = async (wordsToUpload) => {
         try {
             console.log('Uploading words:', wordsToUpload);
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
 
             // Firestore batch write (limit 500 operations per batch)
             const batchSize = 500;
@@ -75,7 +79,7 @@ export default function WordManagement() {
                 const batch = writeBatch(db);
                 chunk.forEach(word => {
                     const docRef = doc(collection(db, "words")); // Auto-ID
-                    batch.set(docRef, word);
+                    batch.set(docRef, { ...word, academyId }); // Add academyId
                 });
                 await batch.commit();
             }
@@ -93,9 +97,11 @@ export default function WordManagement() {
         if (!newWord.english || !newWord.korean) return;
 
         try {
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
             await addDoc(collection(db, 'words'), {
                 ...newWord,
-                word_number: newWord.word_number ? parseInt(newWord.word_number) : null
+                word_number: newWord.word_number ? parseInt(newWord.word_number) : null,
+                academyId // Add academyId
             });
             setNewWord({ book_name: '기본', word_number: '', english: '', korean: '' });
             fetchWords();
