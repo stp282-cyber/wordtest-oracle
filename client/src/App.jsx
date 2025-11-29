@@ -29,6 +29,12 @@ const PrivateRoute = ({ children, role }) => {
   const userRole = localStorage.getItem('role');
 
   if (!token) return <Navigate to="/login" />;
+
+  // Super admin can access everything, or at least admin routes
+  if (role === 'admin' && userRole === 'super_admin') {
+    return children;
+  }
+
   if (role && userRole !== role) return <Navigate to="/" />;
 
   return children;
