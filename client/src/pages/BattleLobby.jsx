@@ -21,14 +21,10 @@ export default function BattleLobby() {
     useEffect(() => {
         const fetchBooks = async () => {
             try {
-                const q = query(collection(db, 'words'));
+                const q = query(collection(db, 'books'));
                 const snapshot = await getDocs(q);
-                const books = new Set();
-                snapshot.docs.forEach(doc => {
-                    const data = doc.data();
-                    if (data.book_name) books.add(data.book_name);
-                });
-                setAvailableBooks(Array.from(books));
+                const books = snapshot.docs.map(doc => doc.data().name);
+                setAvailableBooks(books);
             } catch (error) {
                 console.error("Error fetching books:", error);
             }

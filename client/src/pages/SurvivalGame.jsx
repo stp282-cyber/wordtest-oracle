@@ -266,20 +266,76 @@ export default function SurvivalGame() {
 
         // Fetch words and start
         try {
-            let q;
-            if (room.selectedBook) {
-                q = query(collection(db, 'words'), where('book_name', '==', room.selectedBook));
+            // Optimized Fetching Logic
+            let targetBook = room.selectedBook;
+            let totalWords = 0;
+
+            // 1. Determine Book and Total Words
+            if (!targetBook) {
+                // Pick random book
+                const booksSnap = await getDocs(collection(db, 'books'));
+                if (booksSnap.empty) {
+                    alert("등록된 단어장이 없습니다.");
+                    return;
+                }
+                const randomBookDoc = booksSnap.docs[Math.floor(Math.random() * booksSnap.docs.length)];
+                targetBook = randomBookDoc.data().bookName;
+                totalWords = randomBookDoc.data().totalWords || 0;
             } else {
-                q = query(collection(db, 'words'));
+                // Get metadata for selected book
+                const booksQuery = query(collection(db, 'books'), where('bookName', '==', targetBook));
+                const bookSnap = await getDocs(booksQuery);
+                if (!bookSnap.empty) {
+                    totalWords = bookSnap.docs[0].data().totalWords || 0;
+                }
             }
-            const snap = await getDocs(q);
-            const list = snap.docs.map(d => d.data());
-            const shuffled = list.sort(() => 0.5 - Math.random()).slice(0, 50); // 50 words
+
+            let gameWords = [];
+
+            // 2. Fetch Words
+            if (totalWords > 0 && totalWords <= 60) {
+                // Small book: fetch all
+                const q = query(collection(db, 'words'), where('book_name', '==', targetBook));
+                const snap = await getDocs(q);
+                gameWords = snap.docs.map(d => d.data());
+            } else if (totalWords > 60) {
+                // Large book: fetch random indices
+                const indices = new Set();
+                while (indices.size < 50) {
+                    indices.add(Math.floor(Math.random() * totalWords) + 1);
+                }
+                const indexArray = Array.from(indices);
+
+                // Batch queries (max 10 per 'in' clause)
+                const batches = [];
+                for (let i = 0; i < indexArray.length; i += 10) {
+                    batches.push(indexArray.slice(i, i + 10));
+                }
+
+                const promises = batches.map(batch => {
+                    const q = query(collection(db, 'words'), where('book_name', '==', targetBook), where('word_number', 'in', batch));
+                    return getDocs(q);
+                });
+
+                const snapshots = await Promise.all(promises);
+                snapshots.forEach(snap => {
+                    snap.docs.forEach(d => gameWords.push(d.data()));
+                });
+            } else {
+                // Fallback (metadata missing): fetch all (should be rare if migration ran)
+                const q = query(collection(db, 'words'), where('book_name', '==', targetBook));
+                const snap = await getDocs(q);
+                gameWords = snap.docs.map(d => d.data());
+            }
+
+            // Shuffle
+            const shuffled = gameWords.sort(() => 0.5 - Math.random()).slice(0, 50);
 
             await updateDoc(doc(db, 'battles', roomId), {
                 status: 'playing',
                 gameWords: shuffled,
-                startTime: new Date().toISOString()
+                startTime: new Date().toISOString(),
+                selectedBook: targetBook // Ensure book is set if it was random
             });
         } catch (e) {
             console.error(e);

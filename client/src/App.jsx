@@ -17,13 +17,13 @@ import LessonManagement from './pages/LessonManagement';
 import DollarManagement from './pages/DollarManagement';
 import AnnouncementManagement from './pages/AnnouncementManagement';
 import BattleLobby from './pages/BattleLobby';
-import BattleRoom from './pages/BattleRoom';
+// import BattleRoom from './pages/BattleRoom';
 import SurvivalLobby from './pages/SurvivalLobby';
 import SurvivalGame from './pages/SurvivalGame';
 import MigrationTool from './pages/MigrationTool';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AcademySettings from './pages/AcademySettings';
-import DataManagement from './pages/DataManagement';
+// import DataManagement from './pages/DataManagement';
 import Layout from './components/Layout';
 import { db } from './firebase';
 import { doc, getDoc } from 'firebase/firestore';
@@ -164,14 +164,14 @@ function App() {
                 </PrivateRoute>
               }
             />
-            <Route
+            {/* <Route
               path="/student/battle/:roomId"
               element={
                 <PrivateRoute role="student">
                   <BattleRoom />
                 </PrivateRoute>
               }
-            />
+            /> */}
             <Route
               path="/student/survival"
               element={
@@ -254,14 +254,14 @@ function App() {
                 </PrivateRoute>
               }
             />
-            <Route
+            {/* <Route
               path="/admin/data"
               element={
                 <PrivateRoute role="admin">
                   <DataManagement />
                 </PrivateRoute>
               }
-            />
+            /> */}
             <Route
               path="/admin/student-history"
               element={

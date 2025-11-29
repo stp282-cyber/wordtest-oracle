@@ -37,13 +37,12 @@ export default function WordScramble() {
             try {
                 const wordsQuery = query(
                     collection(db, 'words'),
-                    where('book_name', '==', bookName)
+                    where('book_name', '==', bookName),
+                    where('word_number', '>=', parseInt(studyStartIndex)),
+                    where('word_number', '<', parseInt(studyEndIndex))
                 );
                 const querySnapshot = await getDocs(wordsQuery);
-                const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                const targetWords = allWords
-                    .filter(w => w.word_number >= parseInt(studyStartIndex) && w.word_number < parseInt(studyEndIndex));
+                const targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
                 if (targetWords.length === 0) {
                     alert('게임할 단어가 없습니다.');

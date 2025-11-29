@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowRight, Check, RotateCcw, BookOpen, Trophy, DollarSign } from 'lucide-react';
 import { db } from '../firebase';
-import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs } from 'firebase/firestore';
+import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 import { addDollars, getRewardSettings, hasReceivedDailyReward } from '../utils/dollarUtils';
 
@@ -115,28 +115,48 @@ export default function TestInterface() {
                 const reviewStartWordNumber = Math.max(1, startWordNumber - (currentSessionLength * 2));
                 const reviewEndWordNumber = startWordNumber;
 
-                // 3. Fetch Words
-                const wordsQuery = query(
-                    collection(db, 'words'),
-                    where('book_name', '==', bookName)
-                );
-                const querySnapshot = await getDocs(wordsQuery);
-                const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // 3. Fetch Words (Optimized: Split queries)
 
-                // Calculate max word number for this book
-                const maxNum = Math.max(...allWords.map(w => w.word_number || 0), 0);
+                // Fetch New Words
+                const newWordsQuery = query(
+                    collection(db, 'words'),
+                    where('book_name', '==', bookName),
+                    where('word_number', '>=', startWordNumber),
+                    where('word_number', '<', endWordNumber)
+                );
+                const newWordsSnap = await getDocs(newWordsQuery);
+                const newWordsData = newWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                    .sort((a, b) => a.word_number - b.word_number);
+
+                // Fetch Review Words
+                const reviewWordsQuery = query(
+                    collection(db, 'words'),
+                    where('book_name', '==', bookName),
+                    where('word_number', '>=', reviewStartWordNumber),
+                    where('word_number', '<', reviewEndWordNumber)
+                );
+                const reviewWordsSnap = await getDocs(reviewWordsQuery);
+                const reviewWordsData = reviewWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
+                    .sort((a, b) => a.word_number - b.word_number);
+
+                // Fetch Max Word Number (Efficiently)
+                let maxNum = 0;
+                const lastWordQuery = query(
+                    collection(db, 'words'),
+                    where('book_name', '==', bookName),
+                    orderBy('word_number', 'desc'),
+                    limit(1)
+                );
+                const lastWordSnap = await getDocs(lastWordQuery);
+                if (!lastWordSnap.empty) {
+                    maxNum = lastWordSnap.docs[0].data().word_number;
+                }
                 setMaxWordNumber(maxNum);
 
-                // 4. Filter
-                const newWordsData = allWords
-                    .filter(w => w.word_number >= startWordNumber && w.word_number < endWordNumber)
-                    .sort((a, b) => a.word_number - b.word_number);
+                // Combine for empty check (if needed)
+                const allWordsCount = newWordsData.length + reviewWordsData.length;
 
-                const reviewWordsData = allWords
-                    .filter(w => w.word_number >= reviewStartWordNumber && w.word_number < reviewEndWordNumber)
-                    .sort((a, b) => a.word_number - b.word_number);
-
-                if (newWordsData.length === 0 && allWords.length === 0) {
+                if (newWordsData.length === 0 && allWordsCount === 0) {
                     alert('학습할 단어가 없습니다.');
                     navigate('/student');
                     return;

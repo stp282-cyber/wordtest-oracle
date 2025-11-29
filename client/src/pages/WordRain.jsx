@@ -36,22 +36,26 @@ export default function WordRain() {
         const initializeGame = async () => {
             const { studyStartIndex, studyEndIndex, bookName } = location.state || {};
 
-            if (!studyStartIndex || !studyEndIndex || !bookName) {
-                alert('잘못된 접근입니다.');
-                navigate('/student');
-                return;
-            }
-
             try {
-                const wordsQuery = query(
-                    collection(db, 'words'),
-                    where('book_name', '==', bookName)
-                );
-                const querySnapshot = await getDocs(wordsQuery);
-                const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                let targetWords = [];
 
-                const targetWords = allWords
-                    .filter(w => w.word_number >= parseInt(studyStartIndex) && w.word_number < parseInt(studyEndIndex));
+                if (studyStartIndex && studyEndIndex && bookName) {
+                    // Optimized Range Query
+                    const q = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName),
+                        where('word_number', '>=', parseInt(studyStartIndex)),
+                        where('word_number', '<', parseInt(studyEndIndex))
+                    );
+                    const querySnapshot = await getDocs(q);
+                    targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                } else {
+                    // Fallback: Fetch random words or redirect
+                    // For now, let's redirect to prevent errors
+                    alert('잘못된 접근입니다. 학습 페이지에서 시작해주세요.');
+                    navigate('/student');
+                    return;
+                }
 
                 if (targetWords.length === 0) {
                     alert('게임할 단어가 없습니다.');

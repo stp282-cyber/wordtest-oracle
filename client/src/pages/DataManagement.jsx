@@ -1,27 +1,19 @@
 import React, { useState, useEffect } from 'react';
-import { Download, Upload, Database, AlertTriangle, Check, Server, Building } from 'lucide-react';
+import { Download, Upload, Database, AlertTriangle, Building } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, getDocs, query, where, writeBatch, doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, getDocs, query, where, writeBatch, doc } from 'firebase/firestore';
 
 export default function DataManagement() {
     const [role, setRole] = useState(null);
-    const [currentAcademyId, setCurrentAcademyId] = useState(null);
     const [academies, setAcademies] = useState([]);
     const [selectedAcademy, setSelectedAcademy] = useState('');
     const [loading, setLoading] = useState(false);
-    const [stats, setStats] = useState({
-        users: 0,
-        words: 0,
-        classes: 0,
-        results: 0
-    });
 
     useEffect(() => {
         const init = async () => {
             const userRole = localStorage.getItem('role');
             const academyId = localStorage.getItem('academyId');
             setRole(userRole);
-            setCurrentAcademyId(academyId);
 
             if (userRole === 'super_admin') {
                 fetchAcademies();
@@ -46,9 +38,6 @@ export default function DataManagement() {
 
     const fetchStats = async (academyId) => {
         if (!academyId) return;
-        // This is a rough estimate, real-time count might be expensive
-        // For now just showing 0 or implementing a simple count if needed
-        // Skipping heavy count queries for performance
     };
 
     const handleBackup = async () => {
@@ -76,23 +65,11 @@ export default function DataManagement() {
             for (const colName of collections) {
                 let q;
                 if (colName === 'test_results') {
-                    // For test_results, we might need to filter by user IDs belonging to the academy
-                    // But for simplicity and performance, we'll fetch all and filter in memory OR 
-                    // if the schema supports academyId on test_results (it should), use that.
-                    // Checking schema... test_results usually has user_id. 
-                    // Let's first get users of this academy.
                     const userQ = query(collection(db, 'users'), where('academyId', '==', targetAcademyId));
                     const userSnap = await getDocs(userQ);
                     const userIds = userSnap.docs.map(d => d.id);
 
                     if (userIds.length > 0) {
-                        // Firestore 'in' query is limited to 10. We need to batch or fetch all and filter.
-                        // Fetching all test_results might be too heavy.
-                        // Ideally test_results should have academyId. If not, we iterate users.
-                        // Let's assume we iterate users for now or fetch all if dataset is small.
-                        // BETTER: Fetch all test_results and filter by user_id in memory (if not too large)
-                        // OR: Add academyId to test_results in the future.
-                        // CURRENT STRATEGY: Fetch all and filter.
                         const allResultsSnap = await getDocs(collection(db, 'test_results'));
                         backupData.data[colName] = allResultsSnap.docs
                             .map(d => ({ id: d.id, ...d.data() }))
@@ -107,7 +84,6 @@ export default function DataManagement() {
                 }
             }
 
-            // Download
             const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
             const a = document.createElement('a');
@@ -148,7 +124,6 @@ export default function DataManagement() {
             try {
                 const json = JSON.parse(event.target.result);
 
-                // Validation
                 if (!json.metadata || !json.data) {
                     throw new Error('올바르지 않은 백업 파일 형식입니다.');
                 }
@@ -169,12 +144,10 @@ export default function DataManagement() {
                             const docRef = doc(db, colName, item.id);
                             const data = { ...item };
 
-                            // Security: Enforce academyId
-                            if (colName !== 'test_results') { // test_results might not have academyId directly
+                            if (colName !== 'test_results') {
                                 data.academyId = targetAcademyId;
                             }
 
-                            // Remove id from data if it exists (it's in docRef)
                             delete data.id;
 
                             batch.set(docRef, data, { merge: true });
@@ -209,7 +182,6 @@ export default function DataManagement() {
                     </div>
                 </header>
 
-                {/* Target Selection (Super Admin Only) */}
                 {role === 'super_admin' && (
                     <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
                         <h2 className="text-lg font-semibold mb-4 flex items-center">
@@ -232,7 +204,6 @@ export default function DataManagement() {
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-                    {/* Backup Section */}
                     <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
                         <div className="flex items-center justify-between mb-6">
                             <div className="p-3 bg-blue-50 text-blue-600 rounded-lg">
@@ -261,7 +232,6 @@ export default function DataManagement() {
                         </div>
                     </div>
 
-                    {/* Restore Section */}
                     <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
                         <div className="flex items-center justify-between mb-6">
                             <div className="p-3 bg-green-50 text-green-600 rounded-lg">

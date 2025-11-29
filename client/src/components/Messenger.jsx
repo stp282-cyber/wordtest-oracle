@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, X, Send, User, ChevronLeft, Users } from 'lucide-react';
 import { db, auth } from '../firebase';
-import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, setDoc, serverTimestamp, increment, getDocs, getDoc } from 'firebase/firestore';
+import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, setDoc, serverTimestamp, increment, getDocs, getDoc, limit } from 'firebase/firestore';
 
 export default function Messenger() {
     const [isOpen, setIsOpen] = useState(false);
@@ -83,25 +83,18 @@ export default function Messenger() {
                     console.log("Fetching teachers for academyId:", academyId);
 
                     // Fetch ALL admins first to handle potential missing academyId fields
+                    // Fetch admins for this academy
+                    const currentAcademyId = academyId || 'academy_default';
                     const q = query(
                         collection(db, 'users'),
-                        where('role', '==', 'admin')
+                        where('role', '==', 'admin'),
+                        where('academyId', '==', currentAcademyId)
                     );
                     const snapshot = await getDocs(q);
-                    const allAdmins = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    const teachersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-                    // Filter client-side for robustness
-                    // Treat missing academyId as 'academy_default'
-                    const currentAcademyId = academyId || 'academy_default';
-
-                    const filteredTeachers = allAdmins.filter(teacher => {
-                        const teacherAcademyId = teacher.academyId || 'academy_default';
-                        // Loose comparison just in case
-                        return String(teacherAcademyId) === String(currentAcademyId);
-                    });
-
-                    console.log(`Found ${filteredTeachers.length} teachers for academy ${currentAcademyId} (Raw admins: ${allAdmins.length})`);
-                    setTeachers(filteredTeachers);
+                    console.log(`Found ${teachersList.length} teachers for academy ${currentAcademyId}`);
+                    setTeachers(teachersList);
                 } catch (error) {
                     console.error("Error fetching teachers:", error);
                 }
@@ -203,7 +196,8 @@ export default function Messenger() {
 
         const q = query(
             collection(db, 'chats', activeChat, 'messages'),
-            orderBy('timestamp', 'asc')
+            orderBy('timestamp', 'asc'),
+            limit(50) // Limit to last 50 messages
         );
 
         const unsubscribe = onSnapshot(q, (snapshot) => {

@@ -64,28 +64,25 @@ export default function StudyPage() {
 
                 setRangeInfo({ start: startWordNumber, end: endWordNumber });
 
-                // 3. Fetch Words (Fetch all for book and filter in JS to avoid index issues)
+                // 3. Fetch Words (Fetch only target range)
                 const wordsQuery = query(
                     collection(db, 'words'),
-                    where('book_name', '==', currentBookName)
+                    where('book_name', '==', currentBookName),
+                    where('word_number', '>=', startWordNumber),
+                    where('word_number', '<', endWordNumber)
                 );
                 const querySnapshot = await getDocs(wordsQuery);
-                const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                const targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
-                // Debug Info
+                // Debug Info (Updated for range query)
                 setDebugInfo({
-                    totalWords: allWords.length,
-                    firstWord: allWords[0] || null,
-                    lastWord: allWords[allWords.length - 1] || null
+                    totalWords: targetWords.length,
+                    firstWord: targetWords[0] || null,
+                    lastWord: targetWords[targetWords.length - 1] || null
                 });
 
-                // 4. Filter and Sort
-                const targetWords = allWords
-                    .filter(w => {
-                        const wn = parseInt(w.word_number);
-                        return !isNaN(wn) && wn >= startWordNumber && wn < endWordNumber;
-                    })
-                    .sort((a, b) => parseInt(a.word_number) - parseInt(b.word_number));
+                // 4. Sort (Filtering is done by DB)
+                targetWords.sort((a, b) => parseInt(a.word_number) - parseInt(b.word_number));
 
                 setWords(targetWords);
                 setLoading(false);

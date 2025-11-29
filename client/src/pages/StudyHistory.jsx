@@ -2,7 +2,7 @@ import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, CheckCircle, DollarSign, Calendar, TrendingUp, Activity } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
 
 export default function StudyHistory() {
     const [history, setHistory] = useState([]);
@@ -20,7 +20,9 @@ export default function StudyHistory() {
             // Fetch Test Results
             const q = query(
                 collection(db, 'test_results'),
-                where('user_id', '==', userId)
+                where('user_id', '==', userId),
+                orderBy('date', 'desc'),
+                limit(50)
             );
             const querySnapshot = await getDocs(q);
             const rawHistory = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -69,7 +71,9 @@ export default function StudyHistory() {
             // Fetch Dollar History
             const dollarQ = query(
                 collection(db, 'dollar_history'),
-                where('user_id', '==', userId)
+                where('user_id', '==', userId),
+                orderBy('date', 'desc'),
+                limit(50)
             );
             const dollarSnapshot = await getDocs(dollarQ);
             const rawDollarHistory = dollarSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -83,7 +87,8 @@ export default function StudyHistory() {
                 const statusQ = query(
                     collection(db, 'student_status_logs'),
                     where('student_id', '==', userId),
-                    orderBy('changed_at', 'desc')
+                    orderBy('changed_at', 'desc'),
+                    limit(50)
                 );
                 const statusSnapshot = await getDocs(statusQ);
                 const rawStatusLogs = statusSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

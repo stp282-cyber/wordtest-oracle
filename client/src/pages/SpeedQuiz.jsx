@@ -37,13 +37,12 @@ export default function SpeedQuiz() {
             try {
                 const wordsQuery = query(
                     collection(db, 'words'),
-                    where('book_name', '==', bookName)
+                    where('book_name', '==', bookName),
+                    where('word_number', '>=', parseInt(studyStartIndex)),
+                    where('word_number', '<', parseInt(studyEndIndex))
                 );
                 const querySnapshot = await getDocs(wordsQuery);
-                const allWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                const targetWords = allWords
-                    .filter(w => w.word_number >= parseInt(studyStartIndex) && w.word_number < parseInt(studyEndIndex));
+                const targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
 
                 if (targetWords.length < 4) {
                     alert('단어가 너무 적습니다. 최소 4개 이상의 단어가 필요합니다.');

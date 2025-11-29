@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { db, auth } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, getDoc } from 'firebase/firestore';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, getDoc, limit } from 'firebase/firestore';
 import { Plus, Trash2, Megaphone, Users } from 'lucide-react';
 
 export default function AnnouncementManagement() {
@@ -56,7 +56,9 @@ export default function AnnouncementManagement() {
             // REMOVED orderBy to avoid Firestore index requirements for now. Sorting client-side.
             const q = query(
                 collection(db, 'announcements'),
-                where('academyId', '==', academyId)
+                where('academyId', '==', academyId),
+                orderBy('createdAt', 'desc'),
+                limit(20)
             );
             const snapshot = await getDocs(q);
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));

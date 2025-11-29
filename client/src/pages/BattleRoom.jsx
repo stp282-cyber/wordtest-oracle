@@ -125,27 +125,56 @@ export default function BattleRoom() {
         }
 
         try {
-            // Fetch words
-            let q;
-            if (room?.selectedBook) {
-                q = query(collection(db, 'words'), where('book_name', '==', room.selectedBook));
-            } else {
-                q = query(collection(db, 'words'));
+            // Fetch words (Optimized)
+            let bookName = room?.selectedBook || '기본';
+
+            // Simplified approach: Query books collection by name (and academy if possible)
+            // If we don't have academyId in room, we might have issues. 
+            // Let's assume we can fetch all words for the book if metadata is missing (fallback), 
+            // BUT we want to avoid that.
+
+            // Let's try to fetch the book metadata first.
+            const booksQuery = query(collection(db, 'books'), where('name', '==', bookName));
+            const booksSnap = await getDocs(booksQuery);
+
+            let targetWords = [];
+
+            if (!booksSnap.empty) {
+                const bookData = booksSnap.docs[0].data();
+                const totalWords = bookData.totalWords || 0;
+
+                if (totalWords > 0) {
+                    // 2. Generate 10 unique random indices
+                    const count = Math.min(10, totalWords);
+                    const indices = new Set();
+                    while (indices.size < count) {
+                        indices.add(Math.floor(Math.random() * totalWords) + 1); // 1-based index
+                    }
+
+                    // 3. Fetch words by indices
+                    // Firestore 'in' limit is 10. Perfect.
+                    const wordsQuery = query(
+                        collection(db, 'words'),
+                        where('book_name', '==', bookName),
+                        where('word_number', 'in', [...indices])
+                    );
+                    const wordsSnap = await getDocs(wordsQuery);
+                    targetWords = wordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                }
             }
 
-            const snapshot = await getDocs(q);
-            const wordList = snapshot.docs.map(doc => ({
-                id: doc.id,
-                ...doc.data()
-            }));
-
-            // Shuffle words and pick 10
-            const shuffled = wordList.sort(() => 0.5 - Math.random()).slice(0, 10);
+            // Fallback: If no metadata or words found via index (e.g. gaps), fetch all (legacy behavior but safer)
+            if (targetWords.length < 10) {
+                const q = query(collection(db, 'words'), where('book_name', '==', bookName));
+                const snapshot = await getDocs(q);
+                const allWords = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                targetWords = allWords.sort(() => 0.5 - Math.random()).slice(0, 10);
+            }
 
             await updateDoc(doc(db, 'battles', roomId), {
                 status: 'playing',
                 currentWordIndex: 0,
-                gameWords: shuffled, // Store words in Firestore
+                gameWords: targetWords, // Store words in Firestore
                 startTime: new Date().toISOString()
             });
         } catch (error) {
