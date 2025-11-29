@@ -176,11 +176,81 @@ export default function StudentManagement() {
         }
     };
 
-    const [selectedClass, setSelectedClass] = useState('all');
+    const handleResetPassword = async (studentId) => {
+        const newPassword = prompt('새로운 비밀번호를 입력하세요 (최소 6자):');
+        if (!newPassword) return;
+        if (newPassword.length < 6) {
+            alert('비밀번호는 최소 6자 이상이어야 합니다.');
+            return;
+        }
 
-    const filteredStudents = selectedClass === 'all'
-        ? students
-        : students.filter(s => s.class_id === selectedClass);
+        try {
+            const token = localStorage.getItem('token');
+            const response = await fetch('/api/admin/reset-password', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({ uid: studentId, newPassword })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to reset password');
+            }
+
+            alert('비밀번호가 성공적으로 변경되었습니다.');
+        } catch (err) {
+            console.error(err);
+            alert('비밀번호 변경 실패: ' + err.message);
+        }
+    };
+
+    const [selectedClass, setSelectedClass] = useState('all');
+    const [selectedStatus, setSelectedStatus] = useState('all'); // 'all', 'active', 'suspended'
+
+    const filteredStudents = students.filter(s => {
+        const classMatch = selectedClass === 'all' || s.class_id === selectedClass;
+        const statusMatch = selectedStatus === 'all' || (selectedStatus === 'active' ? (s.status !== 'suspended') : (s.status === 'suspended'));
+        return classMatch && statusMatch;
+    });
+
+    const handleToggleStatus = async (student) => {
+        const newStatus = student.status === 'suspended' ? 'active' : 'suspended';
+        if (!confirm(`${student.name} 학생을 ${newStatus === 'active' ? '정상' : '휴원'} 상태로 변경하시겠습니까?`)) return;
+
+        try {
+            const token = localStorage.getItem('token');
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+            const response = await fetch('/api/student/status', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Authorization': `Bearer ${token}`
+                },
+                body: JSON.stringify({
+                    studentId: student.id,
+                    status: newStatus,
+                    academyId: academyId
+                })
+            });
+
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Failed to update status');
+            }
+
+            setStudents(students.map(s =>
+                s.id === student.id ? { ...s, status: newStatus } : s
+            ));
+            alert(`상태가 ${newStatus === 'active' ? '정상' : '휴원'}으로 변경되었습니다.`);
+        } catch (err) {
+            console.error(err);
+            alert('상태 변경 실패: ' + err.message);
+        }
+    };
 
     return (
         <div className="min-h-screen bg-gray-50 p-8">
@@ -236,26 +306,51 @@ export default function StudentManagement() {
                 <div className="bg-white rounded-2xl shadow-sm p-6 border border-gray-100">
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="text-lg font-semibold">학생 목록 ({filteredStudents.length}명)</h2>
-                        <select
-                            value={selectedClass}
-                            onChange={(e) => setSelectedClass(e.target.value)}
-                            className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
-                        >
-                            <option value="all">전체 반</option>
-                            {classes.map(cls => (
-                                <option key={cls.id} value={cls.id}>{cls.name}</option>
-                            ))}
-                        </select>
+                        <div className="flex space-x-2">
+                            <select
+                                value={selectedStatus}
+                                onChange={(e) => setSelectedStatus(e.target.value)}
+                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                                <option value="all">전체 상태</option>
+                                <option value="active">정상</option>
+                                <option value="suspended">휴원</option>
+                            </select>
+                            <select
+                                value={selectedClass}
+                                onChange={(e) => setSelectedClass(e.target.value)}
+                                className="px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
+                            >
+                                <option value="all">전체 반</option>
+                                {classes.map(cls => (
+                                    <option key={cls.id} value={cls.id}>{cls.name}</option>
+                                ))}
+                            </select>
+                        </div>
                     </div>
                     <div className="space-y-4">
                         {filteredStudents.map((student) => (
-                            <div key={student.id} className="border border-gray-200 rounded-lg p-4">
+                            <div key={student.id} className={`border rounded-lg p-4 ${student.status === 'suspended' ? 'bg-gray-50 border-gray-200' : 'border-gray-200'}`}>
                                 <div className="flex items-center justify-between mb-3">
                                     <div>
-                                        <h3 className="font-semibold text-gray-900">{student.name || student.username}</h3>
+                                        <div className="flex items-center space-x-2">
+                                            <h3 className="font-semibold text-gray-900">{student.name || student.username}</h3>
+                                            {student.status === 'suspended' && (
+                                                <span className="px-2 py-0.5 bg-gray-200 text-gray-600 text-xs rounded-full">휴원</span>
+                                            )}
+                                        </div>
                                         <p className="text-sm text-gray-500">ID: {student.username}</p>
                                     </div>
                                     <div className="flex items-center space-x-2">
+                                        <button
+                                            onClick={() => handleToggleStatus(student)}
+                                            className={`px-3 py-1 text-sm rounded flex items-center space-x-1 ${student.status === 'suspended'
+                                                ? 'bg-green-100 text-green-700 hover:bg-green-200'
+                                                : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                                                }`}
+                                        >
+                                            <span>{student.status === 'suspended' ? '복원' : '휴원'}</span>
+                                        </button>
                                         <button
                                             onClick={() => setShowAbsenceModal(student.id)}
                                             className="px-3 py-1 bg-orange-500 text-white text-sm rounded hover:bg-orange-600 flex items-center space-x-1"
@@ -306,6 +401,12 @@ export default function StudentManagement() {
                                                     className="px-4 py-1 bg-red-600 text-white text-sm rounded hover:bg-red-700"
                                                 >
                                                     삭제
+                                                </button>
+                                                <button
+                                                    onClick={() => handleResetPassword(student.id)}
+                                                    className="px-4 py-1 bg-yellow-500 text-white text-sm rounded hover:bg-yellow-600"
+                                                >
+                                                    비밀번호 초기화
                                                 </button>
                                             </>
                                         )}

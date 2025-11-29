@@ -22,6 +22,7 @@ import SurvivalLobby from './pages/SurvivalLobby';
 import SurvivalGame from './pages/SurvivalGame';
 import MigrationTool from './pages/MigrationTool';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
+import AcademySettings from './pages/AcademySettings';
 import Layout from './components/Layout';
 
 const PrivateRoute = ({ children, role }) => {
@@ -200,6 +201,14 @@ function App() {
               element={
                 <PrivateRoute role="admin">
                   <AnnouncementManagement />
+                </PrivateRoute>
+              }
+            />
+            <Route
+              path="/admin/settings"
+              element={
+                <PrivateRoute role="admin">
+                  <AcademySettings />
                 </PrivateRoute>
               }
             />

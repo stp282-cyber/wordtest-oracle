@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Upload, Trash2, Plus, BookOpen, Edit2, Save, X, AlertTriangle } from 'lucide-react';
+import { Upload, Trash2, Plus, BookOpen, Edit2, Save, X, AlertTriangle, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
 import { db } from '../firebase';
 import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch, updateDoc, query, where } from 'firebase/firestore';
@@ -7,7 +7,7 @@ import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch, updateDoc, que
 export default function WordManagement() {
     const [words, setWords] = useState([]);
     const [newWord, setNewWord] = useState({ book_name: '기본', word_number: '', english: '', korean: '' });
-    const [filterBookName, setFilterBookName] = useState('전체');
+    const [filterBookName, setFilterBookName] = useState('기본');
     const [editingWord, setEditingWord] = useState(null);
 
     const fetchWords = useCallback(async () => {
@@ -36,7 +36,7 @@ export default function WordManagement() {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const bookNames = ['전체', ...new Set(words.map(w => w.book_name).filter(Boolean))];
+    const bookNames = ['전체', '기본', ...new Set(words.map(w => w.book_name).filter(n => n && n !== '기본'))];
 
     const handleExcelUpload = (e) => {
         const file = e.target.files[0];
@@ -180,6 +180,30 @@ export default function WordManagement() {
 
     const filteredWords = filterBookName === '전체' ? words : words.filter(w => w.book_name === filterBookName);
 
+    const handleDownloadExcel = () => {
+        if (filteredWords.length === 0) {
+            alert('다운로드할 단어가 없습니다.');
+            return;
+        }
+
+        const dataToExport = filteredWords.map(word => ({
+            단어장명: word.book_name,
+            번호: word.word_number,
+            영단어: word.english,
+            뜻: word.korean
+        }));
+
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, filterBookName === '전체' ? '전체단어' : filterBookName);
+
+        const fileName = filterBookName === '전체'
+            ? `전체단어목록_${new Date().toISOString().slice(0, 10)}.xlsx`
+            : `${filterBookName}_단어목록_${new Date().toISOString().slice(0, 10)}.xlsx`;
+
+        XLSX.writeFile(wb, fileName);
+    };
+
     return (
         <div className="min-h-screen bg-gray-50 p-8">
             <div className="max-w-6xl mx-auto space-y-6">
@@ -232,6 +256,13 @@ export default function WordManagement() {
                     <div className="flex items-center justify-between mb-4">
                         <h2 className="text-lg font-semibold">등록된 단어 ({filteredWords.length}개)</h2>
                         <div className="flex gap-2">
+                            <button
+                                onClick={handleDownloadExcel}
+                                className="px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors flex items-center gap-2 text-sm font-bold"
+                            >
+                                <Download className="w-4 h-4" />
+                                엑셀 다운로드
+                            </button>
                             {filterBookName !== '전체' && (
                                 <button
                                     onClick={handleDeleteBook}

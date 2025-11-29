@@ -1,13 +1,14 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, DollarSign, Calendar, TrendingUp } from 'lucide-react';
+import { ArrowLeft, CheckCircle, DollarSign, Calendar, TrendingUp, Activity } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
+import { collection, query, where, getDocs, orderBy } from 'firebase/firestore';
 
 export default function StudyHistory() {
     const [history, setHistory] = useState([]);
     const [dollarHistory, setDollarHistory] = useState([]);
-    const [activeTab, setActiveTab] = useState('tests'); // 'tests' or 'dollars'
+    const [statusLogs, setStatusLogs] = useState([]);
+    const [activeTab, setActiveTab] = useState('tests'); // 'tests', 'dollars', 'status'
     const navigate = useNavigate();
     const location = useLocation();
     const targetUserId = location.state?.targetUserId;
@@ -77,6 +78,21 @@ export default function StudyHistory() {
             rawDollarHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
             setDollarHistory(rawDollarHistory);
 
+            // Fetch Status Logs
+            try {
+                const statusQ = query(
+                    collection(db, 'student_status_logs'),
+                    where('student_id', '==', userId),
+                    orderBy('changed_at', 'desc')
+                );
+                const statusSnapshot = await getDocs(statusQ);
+                const rawStatusLogs = statusSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                setStatusLogs(rawStatusLogs);
+            } catch (e) {
+                console.error("Error fetching status logs:", e);
+                // Might fail if index is missing, but basic query should work or we catch it
+            }
+
         } catch (err) {
             console.error(err);
             alert('학습 기록을 불러오지 못했습니다.');
@@ -90,7 +106,15 @@ export default function StudyHistory() {
     }, [targetUserId]);
 
     const formatDate = (dateStr) => {
+        if (!dateStr) return '-';
         const d = new Date(dateStr);
+        return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
+    };
+
+    const formatTimestamp = (timestamp) => {
+        if (!timestamp) return '-';
+        // Handle Firestore Timestamp
+        const d = timestamp.toDate ? timestamp.toDate() : new Date(timestamp);
         return d.toLocaleDateString('ko-KR', { year: 'numeric', month: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit' });
     };
 
@@ -135,9 +159,19 @@ export default function StudyHistory() {
                         <div className="absolute bottom-0 left-0 w-full h-0.5 bg-green-600 rounded-t-full"></div>
                     )}
                 </button>
+                <button
+                    onClick={() => setActiveTab('status')}
+                    className={`pb-2 px-4 font-medium transition-colors relative ${activeTab === 'status' ? 'text-blue-600' : 'text-gray-500 hover:text-gray-700'
+                        }`}
+                >
+                    상태 변경 이력
+                    {activeTab === 'status' && (
+                        <div className="absolute bottom-0 left-0 w-full h-0.5 bg-blue-600 rounded-t-full"></div>
+                    )}
+                </button>
             </div>
 
-            {activeTab === 'tests' ? (
+            {activeTab === 'tests' && (
                 history.length === 0 ? (
                     <p className="text-gray-500 text-center py-10">학습 기록이 없습니다.</p>
                 ) : (
@@ -197,7 +231,9 @@ export default function StudyHistory() {
                         ))}
                     </div>
                 )
-            ) : (
+            )}
+
+            {activeTab === 'dollars' && (
                 dollarHistory.length === 0 ? (
                     <p className="text-gray-500 text-center py-10">달러 내역이 없습니다.</p>
                 ) : (
@@ -220,6 +256,33 @@ export default function StudyHistory() {
                                 </div>
                                 <div className={`text-xl font-bold ${item.amount >= 0 ? 'text-green-600' : 'text-red-600'}`}>
                                     {item.amount >= 0 ? '+' : ''}{item.amount.toFixed(2)} $
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )
+            )}
+
+            {activeTab === 'status' && (
+                statusLogs.length === 0 ? (
+                    <p className="text-gray-500 text-center py-10">상태 변경 이력이 없습니다.</p>
+                ) : (
+                    <div className="space-y-4">
+                        {statusLogs.map((log, index) => (
+                            <div key={index} className="bg-white rounded-xl shadow-sm p-4 border border-gray-100 flex items-center justify-between hover:shadow-md transition-shadow">
+                                <div className="flex items-center space-x-4">
+                                    <div className={`p-3 rounded-full ${log.status === 'active' ? 'bg-green-100 text-green-600' : 'bg-gray-100 text-gray-600'}`}>
+                                        <Activity className="w-6 h-6" />
+                                    </div>
+                                    <div>
+                                        <p className="font-bold text-gray-800 text-lg">
+                                            {log.status === 'active' ? '정상(Active) 전환' : '휴원(Suspended) 전환'}
+                                        </p>
+                                        <div className="flex items-center text-sm text-gray-500 space-x-2">
+                                            <Calendar className="w-3 h-3" />
+                                            <span>{formatTimestamp(log.changed_at)}</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
                         ))}

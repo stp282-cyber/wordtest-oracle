@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where } from 'firebase/firestore';
+import { db, auth } from '../firebase';
+import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, getDoc } from 'firebase/firestore';
 import { Plus, Trash2, Megaphone, Users } from 'lucide-react';
 
 export default function AnnouncementManagement() {
@@ -8,10 +8,37 @@ export default function AnnouncementManagement() {
     const [classes, setClasses] = useState([]);
     const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '', targetClassId: 'all' });
     const [loading, setLoading] = useState(true);
+    const [academyId, setAcademyId] = useState(null);
+
+    useEffect(() => {
+        const fetchUserData = async () => {
+            if (!auth.currentUser) return;
+            try {
+                const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
+                if (userDoc.exists()) {
+                    const userData = userDoc.data();
+                    const userAcademyId = userData.academyId || 'academy_default';
+                    setAcademyId(userAcademyId);
+
+                    // Update localStorage to be safe
+                    localStorage.setItem('academyId', userAcademyId);
+                }
+            } catch (error) {
+                console.error("Error fetching user data:", error);
+            }
+        };
+        fetchUserData();
+    }, []);
+
+    useEffect(() => {
+        if (academyId) {
+            fetchClasses();
+            fetchAnnouncements();
+        }
+    }, [academyId]);
 
     const fetchClasses = async () => {
         try {
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
             // Filter classes by academyId
             const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
             const snapshot = await getDocs(q);
@@ -24,15 +51,20 @@ export default function AnnouncementManagement() {
 
     const fetchAnnouncements = async () => {
         try {
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            console.log("Fetching announcements for academyId:", academyId);
             // Filter announcements by academyId
+            // REMOVED orderBy to avoid Firestore index requirements for now. Sorting client-side.
             const q = query(
                 collection(db, 'announcements'),
-                where('academyId', '==', academyId),
-                orderBy('createdAt', 'desc')
+                where('academyId', '==', academyId)
             );
             const snapshot = await getDocs(q);
             const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+            // Sort client-side
+            data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+
+            console.log("Fetched announcements:", data);
             setAnnouncements(data);
             setLoading(false);
         } catch (error) {
@@ -41,24 +73,18 @@ export default function AnnouncementManagement() {
         }
     };
 
-    useEffect(() => {
-        const loadData = async () => {
-            await fetchClasses();
-            await fetchAnnouncements();
-        };
-        loadData();
-    }, []);
-
     const handleAddAnnouncement = async (e) => {
         e.preventDefault();
         if (!newAnnouncement.title.trim() || !newAnnouncement.content.trim()) return;
+        if (!academyId) {
+            alert('학원 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
+            return;
+        }
 
         try {
             const targetClassName = newAnnouncement.targetClassId === 'all'
                 ? '전체'
                 : classes.find(c => c.id === newAnnouncement.targetClassId)?.name || 'Unknown';
-
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
 
             await addDoc(collection(db, 'announcements'), {
                 ...newAnnouncement,

@@ -1,8 +1,8 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download, DollarSign, Edit2, Megaphone } from 'lucide-react';
+import { Users, Book, BarChart, BookOpen, UserCog, Filter, Download, DollarSign, Edit2, Megaphone, MessageCircle } from 'lucide-react';
 import { db } from '../firebase';
-import { collection, query, where, getDocs, doc, updateDoc, getDoc } from 'firebase/firestore';
+import { collection, query, where, getDocs, doc, updateDoc, getDoc, setDoc, serverTimestamp } from 'firebase/firestore';
 
 export default function AdminDashboard() {
     const [students, setStudents] = useState([]);
@@ -151,6 +151,55 @@ export default function AdminDashboard() {
         }
     };
 
+    const handleOpenChat = async (e, student) => {
+        e.stopPropagation(); // Prevent row click
+        try {
+            const adminId = localStorage.getItem('userId');
+            const adminName = localStorage.getItem('name') || '선생님';
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+
+            // Check if chat exists
+            const q = query(
+                collection(db, 'chats'),
+                where('teacherId', '==', adminId),
+                where('studentId', '==', student.id)
+            );
+            const snapshot = await getDocs(q);
+
+            let chatId;
+            if (!snapshot.empty) {
+                chatId = snapshot.docs[0].id;
+            } else {
+                // Create new chat
+                const chatRef = doc(collection(db, 'chats'));
+                await setDoc(chatRef, {
+                    studentId: student.id,
+                    studentName: student.name || student.username,
+                    teacherId: adminId,
+                    teacherName: adminName,
+                    academyId: academyId,
+                    lastMessage: '대화를 시작해보세요!',
+                    updatedAt: serverTimestamp(),
+                    unreadCount: { [adminId]: 0, [student.id]: 0 }
+                });
+                chatId = chatRef.id;
+            }
+
+            // Dispatch event to open messenger
+            window.dispatchEvent(new CustomEvent('open-chat', {
+                detail: {
+                    chatId,
+                    recipientId: student.id,
+                    recipientName: student.name || student.username
+                }
+            }));
+
+        } catch (error) {
+            console.error("Error opening chat:", error);
+            alert('채팅을 열 수 없습니다.');
+        }
+    };
+
     return (
         <div className="min-h-screen bg-gray-100 p-8">
             {/* ... (existing header) */}
@@ -165,57 +214,7 @@ export default function AdminDashboard() {
                             <p className="text-sm text-gray-500">{academyName || 'Loading...'}</p>
                         </div>
                     </div>
-                    <div className="flex items-center space-x-3">
-                        <button
-                            onClick={() => navigate('/admin/lessons')}
-                            className="flex items-center px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 transition-colors"
-                        >
-                            <Book className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium">수업 관리</span>
-                        </button>
-                        <button
-                            onClick={() => navigate('/admin/words')}
-                            className="flex items-center px-4 py-2 bg-emerald-600 text-white rounded-lg hover:bg-emerald-700 transition-colors"
-                        >
-                            <BookOpen className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium">단어 관리</span>
-                        </button>
-                        <button
-                            onClick={() => navigate('/admin/students')}
-                            className="flex items-center px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors"
-                        >
-                            <UserCog className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium">학생 관리</span>
-                        </button>
-                        <button
-                            onClick={() => navigate('/admin/classes')}
-                            className="flex items-center px-4 py-2 bg-orange-500 text-white rounded-lg hover:bg-orange-600 transition-colors"
-                        >
-                            <Users className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium">반 관리</span>
-                        </button>
-                        <button
-                            onClick={() => navigate('/admin/announcements')}
-                            className="flex items-center px-4 py-2 bg-purple-600 text-white rounded-lg hover:bg-purple-700 transition-colors"
-                        >
-                            <Megaphone className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium">공지 관리</span>
-                        </button>
-                        <button
-                            onClick={() => navigate('/admin/dollars')}
-                            className="flex items-center px-4 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 transition-colors"
-                        >
-                            <DollarSign className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium">달러 관리</span>
-                        </button>
-                        <button
-                            onClick={handleBackup}
-                            className="flex items-center px-4 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700 transition-colors"
-                        >
-                            <Download className="w-4 h-4 mr-2" />
-                            <span className="text-sm font-medium">데이터 백업</span>
-                        </button>
-                    </div>
+                    {/* Navigation buttons moved to AdminMenu in Layout */}
                 </header>
 
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
@@ -272,6 +271,13 @@ export default function AdminDashboard() {
                                                         <DollarSign className="w-3 h-3 mr-0.5" />
                                                         {Number(student.dollar_balance || 0).toFixed(2)}
                                                     </span>
+                                                    <div
+                                                        onClick={(e) => handleOpenChat(e, student)}
+                                                        className="ml-2 p-1 text-indigo-400 hover:text-indigo-600 hover:bg-indigo-50 rounded-full transition-colors cursor-pointer"
+                                                        title="메시지 보내기"
+                                                    >
+                                                        <MessageCircle className="w-4 h-4" />
+                                                    </div>
                                                 </div>
                                                 <div className="text-xs text-gray-500 mt-0.5 truncate">현재 진도: 단어 {student.current_word_index}번</div>
                                             </div>

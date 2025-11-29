@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { useNavigate } from 'react-router-dom';
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { auth, db } from '../firebase';
 import { signInWithEmailAndPassword } from 'firebase/auth';
 import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
@@ -10,6 +10,39 @@ export default function Login() {
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
     const navigate = useNavigate();
+    const location = useLocation();
+
+    // Branding State
+    const [branding, setBranding] = useState({
+        title: 'Eastern WordTest',
+        subtitle: '이스턴 영어 공부방'
+    });
+
+    useEffect(() => {
+        const fetchBranding = async () => {
+            const params = new URLSearchParams(location.search);
+            const academyId = params.get('academy') || localStorage.getItem('academyId');
+
+            if (academyId) {
+                try {
+                    const docRef = doc(db, 'academies', academyId);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.settings) {
+                            setBranding({
+                                title: data.settings.loginTitle || 'Eastern WordTest',
+                                subtitle: data.settings.loginSubtitle || '이스턴 영어 공부방'
+                            });
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error fetching branding:", error);
+                }
+            }
+        };
+        fetchBranding();
+    }, [location]);
 
     const getEmail = (id) => {
         return id.includes('@') ? id : `${id}@wordtest.com`;
@@ -96,10 +129,10 @@ export default function Login() {
                 <div className="flex flex-col items-center mb-2">
                     <div className="mb-6 text-center transform hover:scale-105 transition-transform duration-300">
                         <h1 className="text-3xl sm:text-5xl font-black text-transparent bg-clip-text bg-gradient-to-r from-blue-600 via-indigo-600 to-purple-600 tracking-tighter mb-2 drop-shadow-sm">
-                            Eastern WordTest
+                            {branding.title}
                         </h1>
                         <h2 className="text-lg sm:text-xl font-bold text-gray-600 tracking-wide">
-                            이스턴 영어 공부방
+                            {branding.subtitle}
                         </h2>
                     </div>
                     <p className="text-gray-500 text-sm">

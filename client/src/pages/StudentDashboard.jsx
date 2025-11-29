@@ -10,6 +10,29 @@ export default function StudentDashboard() {
     const [settings, setSettings] = useState(null);
     const [announcements, setAnnouncements] = useState([]);
     const [bookCounts, setBookCounts] = useState({}); // { bookName: totalCount }
+    const [footerInfo, setFooterInfo] = useState('');
+
+    useEffect(() => {
+        const fetchAcademySettings = async () => {
+            const academyId = localStorage.getItem('academyId');
+            if (academyId) {
+                try {
+                    const docRef = doc(db, 'academies', academyId);
+                    const docSnap = await getDoc(docRef);
+                    if (docSnap.exists()) {
+                        const data = docSnap.data();
+                        if (data.settings?.footerInfo) {
+                            setFooterInfo(data.settings.footerInfo);
+                        }
+                    }
+                } catch (error) {
+                    console.error("Error fetching settings:", error);
+                }
+            }
+        };
+        fetchAcademySettings();
+    }, []);
+
     // Helper to determine initial week start (handles weekend logic)
     const getInitialWeekStart = () => {
         const today = new Date();
@@ -557,6 +580,12 @@ export default function StudentDashboard() {
                         <span className="font-semibold">학습 안내:</span> 각 교재별로 지정된 요일에 학습을 진행하세요. 지난 학습도 언제든지 다시 할 수 있습니다.
                     </p>
                 </div>
+
+                {footerInfo && (
+                    <footer className="mt-12 pt-8 border-t border-gray-200 text-center text-gray-500 text-sm whitespace-pre-line">
+                        {footerInfo}
+                    </footer>
+                )}
             </main>
         </div>
     );
