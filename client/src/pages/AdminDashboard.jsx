@@ -75,10 +75,10 @@ export default function AdminDashboard() {
 
                         <div className="space-y-2">
                             {students.map(student => (
-                                <button
+                                <div
                                     key={student.ID || student.id}
                                     onClick={() => fetchResults(student.ID || student.id)}
-                                    className={`w-full text-left p-3 rounded-lg transition-colors border ${selectedStudent === (student.ID || student.id) ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white border-transparent hover:bg-gray-50'
+                                    className={`w-full text-left p-3 rounded-lg transition-colors border cursor-pointer ${selectedStudent === (student.ID || student.id) ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white border-transparent hover:bg-gray-50'
                                         }`}
                                 >
                                     <div className="flex items-center justify-between">
@@ -98,7 +98,7 @@ export default function AdminDashboard() {
                                             </button>
                                         </div>
                                     </div>
-                                </button>
+                                </div>
                             ))}
                             {students.length === 0 && (
                                 <p className="text-center text-gray-400 py-4 text-sm">학생이 없습니다.</p>

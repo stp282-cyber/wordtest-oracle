@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { MessageCircle, X, Send, User, ChevronLeft } from 'lucide-react';
 import { getChats, createChat, getMessages, sendMessage, markChatRead, getStudents } from '../api/client';
-import { cacheManager, CACHE_DURATION, createCacheKey } from '../utils/cache';
+
 
 export default function Messenger() {
     const [isOpen, setIsOpen] = useState(false);

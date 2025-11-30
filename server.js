@@ -2,6 +2,7 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const oracledb = require('oracledb');
+const bcrypt = require('bcrypt');
 require('dotenv').config();
 const { getConnection } = require('./db/dbConfig');
 
@@ -17,6 +18,19 @@ const io = new Server(server, {
 const PORT = process.env.PORT || 3000;
 
 // 미들웨어
+// CORS 설정
+app.use((req, res, next) => {
+    res.header('Access-Control-Allow-Origin', '*');
+    res.header('Access-Control-Allow-Methods', 'GET, POST, PUT, DELETE, OPTIONS');
+    res.header('Access-Control-Allow-Headers', 'Origin, X-Requested-With, Content-Type, Accept, Authorization');
+
+    // Handle preflight requests
+    if (req.method === 'OPTIONS') {
+        return res.sendStatus(200);
+    }
+    next();
+});
+
 app.use(express.json());
 app.use(express.static('client/build'));
 
@@ -24,6 +38,54 @@ app.use(express.static('client/build'));
 
 app.get('/api/status', (req, res) => {
     res.json({ status: 'online', time: new Date() });
+});
+
+// Login API
+app.post('/api/login', async (req, res) => {
+    const { email, password } = req.body;
+    console.log('Login attempt:', { email, password }); // Debug log
+
+    let connection;
+    try {
+        connection = await getConnection();
+
+        // Find user by id (username)
+        const result = await connection.execute(
+            `SELECT * FROM users WHERE id = :id`,
+            [email],
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+        console.log('DB Result:', result.rows); // Debug log
+
+        if (result.rows.length === 0) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        const user = result.rows[0];
+
+        // Compare password with bcrypt
+        const passwordMatch = await bcrypt.compare(password, user.PASSWORD || user.password);
+
+        if (!passwordMatch) {
+            return res.status(401).json({ error: 'Invalid credentials' });
+        }
+
+        // Return user info (excluding password)
+        res.json({
+            user: {
+                id: user.ID || user.id,
+                username: user.USERNAME || user.username,
+                role: user.ROLE || user.role,
+                email: user.EMAIL || user.email
+            }
+        });
+
+    } catch (err) {
+        console.error('Login error:', err);
+        res.status(500).json({ error: 'Server error' });
+    } finally {
+        if (connection) await connection.close();
+    }
 });
 
 // 단어 목록 조회 (페이지네이션)
@@ -38,9 +100,30 @@ app.get('/api/words', async (req, res) => {
         const countResult = await connection.execute(`SELECT COUNT(*) AS total FROM words`);
         const total = countResult.rows[0][0];
 
+        let query = `SELECT * FROM words`;
+        const params = {};
+        const filters = [];
+
+        if (req.query.book_name) {
+            filters.push(`book_name = :book_name`);
+            params.book_name = req.query.book_name;
+        }
+        if (req.query.unit_name) {
+            filters.push(`unit_name = :unit_name`);
+            params.unit_name = req.query.unit_name;
+        }
+
+        if (filters.length > 0) {
+            query += ` WHERE ` + filters.join(' AND ');
+        }
+
+        query += ` ORDER BY book_name ASC, unit_name ASC, word_order ASC, id ASC OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`;
+        params.offset = offset;
+        params.limit = limit;
+
         const result = await connection.execute(
-            `SELECT * FROM words ORDER BY id ASC OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`,
-            { offset, limit },
+            query,
+            params,
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
 
@@ -50,6 +133,108 @@ app.get('/api/words', async (req, res) => {
         });
     } catch (err) {
         console.error('단어 조회 실패:', err);
+        res.status(500).json({ error: '데이터베이스 오류' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// 단어 추가
+app.post('/api/words', async (req, res) => {
+    const { english, korean, level_group, book_name, unit_name, word_order } = req.body;
+    let connection;
+    try {
+        connection = await getConnection();
+        const result = await connection.execute(
+            `INSERT INTO words (english, korean, level_group, book_name, unit_name, word_order) 
+             VALUES (:english, :korean, :level_group, :book_name, :unit_name, :word_order)`,
+            {
+                english,
+                korean,
+                level_group,
+                book_name: book_name || '기본 단어장',
+                unit_name: unit_name || '기본 단원',
+                word_order: word_order || null
+            },
+            { autoCommit: true }
+        );
+        res.json({ success: true, id: result.lastRowid });
+    } catch (err) {
+        console.error('단어 추가 실패:', err);
+        res.status(500).json({ error: '데이터베이스 오류' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// 단어 수정
+app.put('/api/words/:id', async (req, res) => {
+    const { id } = req.params;
+    const { english, korean, level_group, book_name, unit_name, word_order } = req.body;
+    let connection;
+    try {
+        connection = await getConnection();
+        await connection.execute(
+            `UPDATE words SET english = :english, korean = :korean, level_group = :level_group, 
+             book_name = :book_name, unit_name = :unit_name, word_order = :word_order 
+             WHERE id = :id`,
+            {
+                english,
+                korean,
+                level_group,
+                book_name: book_name || '기본 단어장',
+                unit_name: unit_name || '기본 단원',
+                word_order: word_order || null,
+                id
+            },
+            { autoCommit: true }
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('단어 수정 실패:', err);
+        res.status(500).json({ error: '데이터베이스 오류' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// 단어 일괄 삭제 (단어장별) - MUST come before /api/words/:id
+app.delete('/api/words/batch', async (req, res) => {
+    const { book_name } = req.query;
+    if (!book_name) {
+        return res.status(400).json({ error: 'Book name is required' });
+    }
+    let connection;
+    try {
+        connection = await getConnection();
+        const result = await connection.execute(
+            `DELETE FROM words WHERE book_name = :book_name`,
+            { book_name },
+            { autoCommit: true }
+        );
+        res.json({ success: true, count: result.rowsAffected });
+    } catch (err) {
+        console.error('단어 일괄 삭제 실패:', err);
+        res.status(500).json({ error: '데이터베이스 오류' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// 단어 삭제
+app.delete('/api/words/:id', async (req, res) => {
+    const { id } = req.params;
+    let connection;
+    try {
+        connection = await getConnection();
+        await connection.execute(
+            `DELETE FROM words WHERE id = :id`,
+            { id },
+            { autoCommit: true }
+        );
+        res.json({ success: true });
+    } catch (err) {
+        console.error('단어 삭제 실패:', err);
         res.status(500).json({ error: '데이터베이스 오류' });
     } finally {
         if (connection) await connection.close();
@@ -252,65 +437,6 @@ app.get('/api/admin/words', async (req, res) => {
     } catch (err) {
         console.error('단어 목록 조회 오류:', err);
         res.status(500).json({ error: '데이터베이스 오류' });
-    } finally {
-        if (connection) await connection.close();
-    }
-});
-
-app.post('/api/admin/words', async (req, res) => {
-    const { english, korean, level_group } = req.body;
-    let connection;
-    try {
-        connection = await getConnection();
-        await connection.execute(
-            `INSERT INTO words (english, korean, level_group)
-             VALUES (:english, :korean, :level_group)`,
-            { english, korean, level_group: level_group || 1 },
-            { autoCommit: true }
-        );
-        res.json({ success: true });
-    } catch (err) {
-        console.error('단어 추가 오류:', err);
-        res.status(500).json({ error: '단어 추가 실패' });
-    } finally {
-        if (connection) await connection.close();
-    }
-});
-
-app.put('/api/admin/words/:id', async (req, res) => {
-    const { id } = req.params;
-    const { english, korean, level_group } = req.body;
-    let connection;
-    try {
-        connection = await getConnection();
-        await connection.execute(
-            `UPDATE words SET english = :english, korean = :korean, level_group = :level_group WHERE id = :id`,
-            { id, english, korean, level_group },
-            { autoCommit: true }
-        );
-        res.json({ success: true });
-    } catch (err) {
-        console.error('단어 수정 오류:', err);
-        res.status(500).json({ error: '단어 수정 실패' });
-    } finally {
-        if (connection) await connection.close();
-    }
-});
-
-app.delete('/api/admin/words/:id', async (req, res) => {
-    const { id } = req.params;
-    let connection;
-    try {
-        connection = await getConnection();
-        await connection.execute(
-            `DELETE FROM words WHERE id = :id`,
-            { id },
-            { autoCommit: true }
-        );
-        res.json({ success: true });
-    } catch (err) {
-        console.error('단어 삭제 오류:', err);
-        res.status(500).json({ error: '단어 삭제 실패' });
     } finally {
         if (connection) await connection.close();
     }
@@ -1112,13 +1238,40 @@ io.on('connection', (socket) => {
     socket.on('disconnect', () => {
         console.log('사용자 접속 해제:', socket.id);
     });
-    u_teacher.name as teacher_name 
+});
+
+// Get Chats
+app.get('/api/chats', async (req, res) => {
+    const { userId, role } = req.query;
+    let connection;
+    try {
+        connection = await getConnection();
+        let query;
+        let params;
+
+        if (role === 'admin' || role === 'super_admin') {
+            query = `
+                SELECT c.*, 
+                       u_student.name as student_name, 
+                       u_teacher.name as teacher_name 
                 FROM chats c
                 JOIN users u_student ON c.student_id = u_student.id
                 JOIN users u_teacher ON c.teacher_id = u_teacher.id
-                WHERE c.student_id = : userId
                 ORDER BY c.updated_at DESC
             `;
+            params = [];
+        } else {
+            query = `
+                SELECT c.*, 
+                       u_student.name as student_name, 
+                       u_teacher.name as teacher_name 
+                FROM chats c
+                JOIN users u_student ON c.student_id = u_student.id
+                JOIN users u_teacher ON c.teacher_id = u_teacher.id
+                WHERE c.student_id = :userId
+                ORDER BY c.updated_at DESC
+            `;
+            params = [userId];
         }
 
         const result = await connection.execute(query, params, { outFormat: oracledb.OUT_FORMAT_OBJECT });
@@ -1140,7 +1293,7 @@ io.on('connection', (socket) => {
 // Create Chat
 app.post('/api/chats', async (req, res) => {
     const { studentId, teacherId, academyId } = req.body;
-    const id = `chat_${ Date.now() }_${ Math.random().toString(36).substr(2, 9) } `;
+    const id = `chat_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `;
 
     let connection;
     try {
@@ -1214,7 +1367,7 @@ app.get('/api/chats/:chatId/messages', async (req, res) => {
 app.post('/api/chats/:chatId/messages', async (req, res) => {
     const { chatId } = req.params;
     const { senderId, content, role } = req.body;
-    const id = `msg_${ Date.now() }_${ Math.random().toString(36).substr(2, 9) } `;
+    const id = `msg_${Date.now()}_${Math.random().toString(36).substr(2, 9)} `;
 
     let connection;
     try {
@@ -1310,6 +1463,11 @@ io.on('connection', (socket) => {
 
     socket.on('join_room', (roomId) => {
         socket.join(roomId);
-        console.log(`사용자 ${ socket.id }가 방 ${ roomId }에 입장했습니다.`);
+        console.log(`사용자 ${socket.id}가 방 ${roomId}에 입장했습니다.`);
     });
+});
+
+// Start server
+server.listen(PORT, () => {
+    console.log(`🚀 Server is running on port ${PORT}`);
 });

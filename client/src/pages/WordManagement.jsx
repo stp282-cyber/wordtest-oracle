@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
-import { BookOpen, Plus, Edit, Trash2 } from 'lucide-react';
-import { getAllWords, addWord, updateWord, deleteWord } from '../api/client';
+import React, { useState, useEffect, useRef } from 'react';
+import { BookOpen, Plus, Edit, Trash2, Upload, Download, FileDown } from 'lucide-react';
+import { getAllWords, addWord, updateWord, deleteWord, deleteWordsByBook } from '../api/client';
+import * as XLSX from 'xlsx';
 
 export default function WordManagement() {
     const [words, setWords] = useState([]);
@@ -10,8 +11,14 @@ export default function WordManagement() {
     const [formData, setFormData] = useState({
         english: '',
         korean: '',
-        level_group: 1
+        level_group: 1,
+        book_name: '',
+        unit_name: '',
+        word_order: ''
     });
+    const [filterBookName, setFilterBookName] = useState('');
+    const [filterUnitName, setFilterUnitName] = useState('');
+    const fileInputRef = useRef(null);
 
     useEffect(() => {
         fetchWords();
@@ -19,8 +26,10 @@ export default function WordManagement() {
 
     const fetchWords = async () => {
         try {
-            const data = await getAllWords();
-            setWords(data);
+            const response = await getAllWords();
+            // API returns { data: [...], meta: {...} } or just [...] depending on implementation
+            // Safe check to handle both cases
+            setWords(Array.isArray(response) ? response : (response.data || []));
         } catch (err) {
             console.error('단어 목록 조회 실패:', err);
         } finally {
@@ -38,7 +47,7 @@ export default function WordManagement() {
             }
             setShowModal(false);
             setEditingWord(null);
-            setFormData({ english: '', korean: '', level_group: 1 });
+            setFormData({ english: '', korean: '', level_group: 1, book_name: '', unit_name: '', word_order: '' });
             fetchWords();
         } catch (err) {
             console.error('단어 저장 실패:', err);
@@ -51,14 +60,16 @@ export default function WordManagement() {
         setFormData({
             english: word.ENGLISH || word.english,
             korean: word.KOREAN || word.korean,
-            level_group: word.LEVEL_GROUP || word.level_group || 1
+            level_group: word.LEVEL_GROUP || word.level_group || 1,
+            book_name: word.BOOK_NAME || word.book_name || '',
+            unit_name: word.UNIT_NAME || word.unit_name || '',
+            word_order: word.WORD_ORDER || word.word_order || ''
         });
         setShowModal(true);
     };
 
     const handleDelete = async (wordId) => {
         if (!window.confirm('정말 삭제하시겠습니까?')) return;
-
         try {
             await deleteWord(wordId);
             fetchWords();
@@ -68,6 +79,86 @@ export default function WordManagement() {
         }
     };
 
+    // Excel Functions
+    const handleDownloadTemplate = () => {
+        const ws = XLSX.utils.json_to_sheet([
+            { book_name: '교재명', unit_name: '단원명', word_order: 1, english: 'apple', korean: '사과', level_group: 1 },
+            { book_name: '교재명', unit_name: '단원명', word_order: 2, english: 'banana', korean: '바나나', level_group: 1 }
+        ]);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Template');
+        XLSX.writeFile(wb, '단어등록_템플릿.xlsx');
+    };
+
+    const handleExportData = () => {
+        const dataToExport = words.map(word => ({
+            book_name: word.BOOK_NAME || word.book_name,
+            unit_name: word.UNIT_NAME || word.unit_name,
+            word_order: word.WORD_ORDER || word.word_order,
+            english: word.ENGLISH || word.english,
+            korean: word.KOREAN || word.korean,
+            level_group: word.LEVEL_GROUP || word.level_group
+        }));
+        const ws = XLSX.utils.json_to_sheet(dataToExport);
+        const wb = XLSX.utils.book_new();
+        XLSX.utils.book_append_sheet(wb, ws, 'Words');
+        XLSX.writeFile(wb, `단어목록_${new Date().toISOString().slice(0, 10)}.xlsx`);
+    };
+
+    const handleExcelUpload = (e) => {
+        const file = e.target.files[0];
+        if (!file) return;
+
+        const reader = new FileReader();
+        reader.onload = async (evt) => {
+            try {
+                const bstr = evt.target.result;
+                const wb = XLSX.read(bstr, { type: 'binary' });
+                const wsname = wb.SheetNames[0];
+                const ws = wb.Sheets[wsname];
+                const data = XLSX.utils.sheet_to_json(ws);
+
+                if (data.length === 0) {
+                    alert('데이터가 없습니다.');
+                    return;
+                }
+
+                setLoading(true);
+                let successCount = 0;
+                let failCount = 0;
+
+                for (const row of data) {
+                    try {
+                        await addWord({
+                            book_name: row.book_name || row.교재명 || row.BOOK_NAME || '',
+                            unit_name: row.unit_name || row.단원명 || row.UNIT_NAME || '',
+                            word_order: row.word_order || row.번호 || row.WORD_ORDER || null,
+                            english: row.english || row.English || row.ENGLISH || row.영단어 || '',
+                            korean: row.korean || row.Korean || row.KOREAN || row.뜻 || row.한글 || '',
+                            level_group: row.level_group || row.Level || row.LEVEL_GROUP || 1
+                        });
+                        successCount++;
+                    } catch (err) {
+                        console.error('Row failed:', row, err);
+                        failCount++;
+                    }
+                }
+
+                alert(`업로드 완료: 성공 ${successCount}건, 실패 ${failCount}건`);
+                fetchWords();
+            } catch (err) {
+                console.error('Excel processing error:', err);
+                alert('엑셀 파일 처리 중 오류가 발생했습니다.');
+            } finally {
+                setLoading(false);
+                if (fileInputRef.current) fileInputRef.current.value = '';
+            }
+        };
+        reader.readAsBinaryString(file);
+    };
+
+
+
     if (loading) {
         return <div className="min-h-screen flex items-center justify-center">로딩 중...</div>;
     }
@@ -76,23 +167,110 @@ export default function WordManagement() {
         <div className="min-h-screen bg-gray-50 p-8">
             <div className="max-w-7xl mx-auto">
                 {/* Header */}
-                <div className="flex items-center justify-between mb-8">
+                <div className="flex flex-col sm:flex-row items-center justify-between mb-8 gap-4">
                     <div className="flex items-center space-x-3">
                         <BookOpen className="w-8 h-8 text-indigo-600" />
                         <h1 className="text-3xl font-bold text-gray-800">단어 관리</h1>
                         <span className="text-gray-500">({words.length}개)</span>
                     </div>
-                    <button
-                        onClick={() => {
-                            setEditingWord(null);
-                            setFormData({ english: '', korean: '', level_group: 1 });
-                            setShowModal(true);
-                        }}
-                        className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center space-x-2"
-                    >
-                        <Plus className="w-5 h-5" />
-                        <span>단어 추가</span>
-                    </button>
+                    <div className="flex flex-wrap gap-2">
+                        <button
+                            onClick={handleDownloadTemplate}
+                            className="px-3 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200 flex items-center space-x-2 text-sm"
+                            title="엑셀 템플릿 다운로드"
+                        >
+                            <FileDown className="w-4 h-4" />
+                            <span className="hidden sm:inline">템플릿</span>
+                        </button>
+                        <button
+                            onClick={() => fileInputRef.current?.click()}
+                            className="px-3 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 flex items-center space-x-2 text-sm"
+                            title="엑셀 파일 업로드"
+                        >
+                            <Upload className="w-4 h-4" />
+                            <span className="hidden sm:inline">업로드</span>
+                        </button>
+                        <button
+                            onClick={handleExportData}
+                            className="px-3 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 flex items-center space-x-2 text-sm"
+                            title="엑셀로 내보내기"
+                        >
+                            <Download className="w-4 h-4" />
+                            <span className="hidden sm:inline">내보내기</span>
+                        </button>
+                        <button
+                            onClick={() => {
+                                setEditingWord(null);
+                                setFormData({ english: '', korean: '', level_group: 1, book_name: '', unit_name: '', word_order: '' });
+                                setShowModal(true);
+                            }}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700 flex items-center space-x-2 text-sm"
+                        >
+                            <Plus className="w-5 h-5" />
+                            <span className="hidden sm:inline">추가</span>
+                        </button>
+                        <input
+                            type="file"
+                            ref={fileInputRef}
+                            onChange={handleExcelUpload}
+                            accept=".xlsx, .xls"
+                            className="hidden"
+                        />
+                    </div>
+                </div>
+
+                {/* Filter Controls */}
+                <div className="bg-white rounded-xl shadow-sm p-4 mb-4">
+                    <div className="flex flex-wrap gap-3 items-end">
+                        <div className="flex-1 min-w-[200px]">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">교재명 필터</label>
+                            <input
+                                type="text"
+                                value={filterBookName}
+                                onChange={(e) => setFilterBookName(e.target.value)}
+                                placeholder="교재명으로 필터링"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                        <div className="flex-1 min-w-[200px]">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">단원명 필터</label>
+                            <input
+                                type="text"
+                                value={filterUnitName}
+                                onChange={(e) => setFilterUnitName(e.target.value)}
+                                placeholder="단원명으로 필터링"
+                                className="w-full px-3 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                            />
+                        </div>
+                        <button
+                            onClick={() => {
+                                setFilterBookName('');
+                                setFilterUnitName('');
+                                fetchWords();
+                            }}
+                            className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
+                        >
+                            필터 초기화
+                        </button>
+                        {filterBookName && (
+                            <button
+                                onClick={async () => {
+                                    if (!window.confirm(`"${filterBookName}" 교재의 모든 단어를 삭제하시겠습니까?`)) return;
+                                    try {
+                                        await deleteWordsByBook(filterBookName);
+                                        alert('삭제되었습니다.');
+                                        fetchWords();
+                                    } catch (err) {
+                                        console.error('삭제 실패:', err);
+                                        alert('삭제에 실패했습니다.');
+                                    }
+                                }}
+                                className="px-4 py-2 bg-red-600 text-white rounded-lg hover:bg-red-700"
+                            >
+                                선택된 교재 전체 삭제
+                            </button>
+                        )}
+                    </div>
                 </div>
 
                 {/* Words Table */}
@@ -101,6 +279,9 @@ export default function WordManagement() {
                         <thead className="bg-gray-50 border-b">
                             <tr>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">ID</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">교재명</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">단원명</th>
+                                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">번호</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">English</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">한글</th>
                                 <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase">Level</th>
@@ -111,6 +292,9 @@ export default function WordManagement() {
                             {words.map((word) => (
                                 <tr key={word.ID || word.id} className="hover:bg-gray-50">
                                     <td className="px-6 py-4 text-sm text-gray-900">{word.ID || word.id}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-600">{word.BOOK_NAME || word.book_name || '-'}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-600">{word.UNIT_NAME || word.unit_name || '-'}</td>
+                                    <td className="px-6 py-4 text-sm text-gray-600">{word.WORD_ORDER || word.word_order || '-'}</td>
                                     <td className="px-6 py-4 text-sm font-medium text-gray-900">{word.ENGLISH || word.english}</td>
                                     <td className="px-6 py-4 text-sm text-gray-500">{word.KOREAN || word.korean}</td>
                                     <td className="px-6 py-4 text-sm text-gray-500">{word.LEVEL_GROUP || word.level_group}</td>
@@ -142,6 +326,36 @@ export default function WordManagement() {
                                 {editingWord ? '단어 수정' : '단어 추가'}
                             </h2>
                             <form onSubmit={handleSubmit} className="space-y-4">
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">교재명</label>
+                                    <input
+                                        type="text"
+                                        value={formData.book_name}
+                                        onChange={(e) => setFormData({ ...formData, book_name: e.target.value })}
+                                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                        placeholder="예: 중등 영단어"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">단원명</label>
+                                    <input
+                                        type="text"
+                                        value={formData.unit_name}
+                                        onChange={(e) => setFormData({ ...formData, unit_name: e.target.value })}
+                                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                        placeholder="예: Unit 1"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">번호</label>
+                                    <input
+                                        type="number"
+                                        value={formData.word_order}
+                                        onChange={(e) => setFormData({ ...formData, word_order: e.target.value })}
+                                        className="w-full px-4 py-2 border rounded-lg focus:ring-2 focus:ring-indigo-500"
+                                        placeholder="단어 순서"
+                                    />
+                                </div>
                                 <div>
                                     <label className="block text-sm font-medium text-gray-700 mb-1">English</label>
                                     <input

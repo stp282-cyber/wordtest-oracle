@@ -2,8 +2,8 @@ import axios from 'axios';
 import io from 'socket.io-client';
 
 // API 기본 설정
-const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3000/api';
-const SOCKET_URL = process.env.REACT_APP_SOCKET_URL || 'http://localhost:3000';
+const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
 
 export const api = axios.create({
     baseURL: API_URL,
@@ -49,6 +49,8 @@ export const getWords = async (page = 1, limit = 50) => {
     return response.data;
 };
 
+export const getAllWords = getWords;
+
 // ===== 관리자 API =====
 
 // 학생 관리
@@ -74,6 +76,21 @@ export const deleteStudent = async (id) => {
 
 export const deleteWord = async (id) => {
     const response = await api.delete(`/admin/words/${id}`);
+    return response.data;
+};
+
+export const addWord = async (wordData) => {
+    const response = await api.post('/admin/words', wordData);
+    return response.data;
+};
+
+export const updateWord = async (id, wordData) => {
+    const response = await api.put(`/admin/words/${id}`, wordData);
+    return response.data;
+};
+
+export const deleteWordsByBook = async (bookName) => {
+    const response = await api.delete(`/words/batch?book_name=${encodeURIComponent(bookName)}`);
     return response.data;
 };
 

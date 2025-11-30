@@ -32,8 +32,9 @@ export default function Login() {
             const userRole = user.ROLE || user.role;
 
             localStorage.setItem('userId', userId);
-            localStorage.setItem('userName', userName);
-            localStorage.setItem('userRole', userRole);
+            localStorage.setItem('username', userName);
+            localStorage.setItem('name', userName); // Layout uses name or username
+            localStorage.setItem('role', userRole); // Layout uses role
 
             if (userRole === 'admin' || userRole === 'super_admin') {
                 navigate('/admin');
@@ -77,11 +78,11 @@ export default function Login() {
 
                 <form onSubmit={handleLogin} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">이메일</label>
+                        <label className="block text-sm font-medium text-gray-700">아이디</label>
                         <input
-                            type="email"
+                            type="text"
                             required
-                            placeholder="예: student1@wordtest.com"
+                            placeholder="아이디 입력"
                             className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
