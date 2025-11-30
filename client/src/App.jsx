@@ -20,13 +20,10 @@ import BattleLobby from './pages/BattleLobby';
 import BattleRoom from './pages/BattleRoom';
 import SurvivalLobby from './pages/SurvivalLobby';
 import SurvivalGame from './pages/SurvivalGame';
-import MigrationTool from './pages/MigrationTool';
 import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AcademySettings from './pages/AcademySettings';
 import DataManagement from './pages/DataManagement';
 import Layout from './components/Layout';
-// import { db } from './firebase';
-// import { doc, getDoc } from 'firebase/firestore';
 
 const PrivateRoute = ({ children, role }) => {
   // 임시: 모든 접근 허용 (로그인/권한 체크 로직은 나중에 API 기반으로 재구현 필요)
@@ -217,14 +214,6 @@ function App() {
               element={
                 <PrivateRoute role="admin">
                   <StudyHistory />
-                </PrivateRoute>
-              }
-            />
-            <Route
-              path="/migration"
-              element={
-                <PrivateRoute role="admin">
-                  <MigrationTool />
                 </PrivateRoute>
               }
             />

@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { MessageCircle, X, Send, User, ChevronLeft, Users } from 'lucide-react';
-import { db } from '../firebase';
-import { collection, query, where, orderBy, onSnapshot, addDoc, updateDoc, doc, setDoc, serverTimestamp, increment, getDocs, getDoc, limit } from 'firebase/firestore';
+import { MessageCircle, X, Send, User, ChevronLeft } from 'lucide-react';
+import { getChats, createChat, getMessages, sendMessage, markChatRead, getStudents } from '../api/client';
 import { cacheManager, CACHE_DURATION, createCacheKey } from '../utils/cache';
 
 export default function Messenger() {
@@ -10,27 +9,25 @@ export default function Messenger() {
     const [chats, setChats] = useState([]);
     const [messages, setMessages] = useState([]);
     const [newMessage, setNewMessage] = useState('');
-    // const [loading, setLoading] = useState(true);
     const [totalUnread, setTotalUnread] = useState(0);
 
     // For Students
     const [teachers, setTeachers] = useState([]);
     const [viewMode, setViewMode] = useState('list'); // 'list' or 'chat'
 
-    // Temporary state to hold chat details when opening via event (before it appears in list)
+    // Temporary state to hold chat details when opening via event
     const [tempChatData, setTempChatData] = useState(null);
 
     const userId = localStorage.getItem('userId');
     const userRole = localStorage.getItem('role');
     const userName = localStorage.getItem('name') || 'User';
+    const academyId = localStorage.getItem('academyId');
 
     // Helper to check if user is admin or super_admin
     const isAdmin = userRole === 'admin' || userRole === 'super_admin';
 
-    // Use state for academyId to ensure it updates after fetch
-    const [academyId, setAcademyId] = useState(localStorage.getItem('academyId'));
-
     const messagesEndRef = useRef(null);
+    const pollingRef = useRef(null);
 
     // Listen for custom event to open chat
     useEffect(() => {
@@ -41,7 +38,6 @@ export default function Messenger() {
                 setActiveChat(chatId);
                 setViewMode('chat');
 
-                // Store temp data for immediate display
                 if (recipientId && recipientName) {
                     setTempChatData({
                         id: chatId,
@@ -56,188 +52,93 @@ export default function Messenger() {
         return () => window.removeEventListener('open-chat', handleOpenChatEvent);
     }, []);
 
-    // Fetch AcademyId if missing
-    useEffect(() => {
-        const fetchAcademyId = async () => {
-            if (!userId) return;
+    // Fetch Teachers (for Students) - In this simplified version, we might fetch admins
+    // Since we don't have a direct 'getTeachers' API, we can assume admins are teachers.
+    // However, for now, let's skip fetching teachers list dynamically if not critical, 
+    // or implement a getTeachers API later. 
+    // Ideally, students should see a list of admins in their academy.
+    // For now, let's focus on existing chats.
 
-            // Try cache first
-            const cacheKey = createCacheKey('user', userId);
-            const cached = cacheManager.get(cacheKey);
-
-            if (cached && cached.academyId) {
-                setAcademyId(cached.academyId);
-                localStorage.setItem('academyId', cached.academyId);
-                return;
-            }
-
-            // Fetch from database
-            try {
-                const userDoc = await getDoc(doc(db, 'users', userId));
-                if (userDoc.exists()) {
-                    const data = userDoc.data();
-                    const fetchedId = data.academyId || 'academy_default';
-
-                    // Cache user data
-                    cacheManager.set(cacheKey, data, CACHE_DURATION.USER);
-
-                    setAcademyId(fetchedId);
-                    localStorage.setItem('academyId', fetchedId);
-                }
-            } catch (error) {
-                console.error("Error fetching user academyId:", error);
-            }
-        };
-        fetchAcademyId();
-    }, [userId]);
-
-    // Fetch Teachers (for Students)
-    useEffect(() => {
-        if (!isAdmin && isOpen) {
-            const fetchTeachers = async () => {
-                try {
-                    console.log("Fetching teachers for academyId:", academyId);
-                    const currentAcademyId = academyId || 'academy_default';
-
-                    // Try cache first
-                    const cacheKey = createCacheKey('teachers', currentAcademyId);
-                    const cached = cacheManager.get(cacheKey);
-
-                    if (cached) {
-                        console.log(`[Cache] Using cached teachers: ${cached.length}`);
-                        setTeachers(cached);
-                        return;
-                    }
-
-                    // Fetch from database
-                    const q = query(
-                        collection(db, 'users'),
-                        where('role', '==', 'admin'),
-                        where('academyId', '==', currentAcademyId)
-                    );
-                    const snapshot = await getDocs(q);
-                    const teachersList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                    console.log(`Found ${teachersList.length} teachers for academy ${currentAcademyId}`);
-
-                    // Cache the data
-                    cacheManager.set(cacheKey, teachersList, CACHE_DURATION.TEACHERS);
-
-                    setTeachers(teachersList);
-                } catch (error) {
-                    console.error("Error fetching teachers:", error);
-                }
-            };
-            fetchTeachers();
-        }
-    }, [userRole, academyId, isOpen, isAdmin]);
-
-    // Create Chat for Student with specific teacher
-    const createStudentChat = async (teacher) => {
-        try {
-            const chatRef = doc(collection(db, 'chats'));
-            const newChatData = {
-                studentId: userId,
-                studentName: userName,
-                teacherId: teacher.id,
-                teacherName: teacher.name,
-                academyId: academyId,
-                lastMessage: '대화를 시작해보세요!',
-                updatedAt: serverTimestamp(),
-                unreadCount: { [teacher.id]: 1, [userId]: 0 } // Teacher has unread
-            };
-            await setDoc(chatRef, newChatData);
-            return { id: chatRef.id, ...newChatData };
-        } catch (error) {
-            console.error("Error creating chat:", error);
-            return null;
-        }
-    };
-
-    // Fetch Chats List
-    useEffect(() => {
+    // Fetch Chats List (Polling)
+    const fetchChats = useCallback(async () => {
         if (!userId) return;
-
-        let q;
-        if (isAdmin) {
-            // Admin sees chats where they are the teacher
-            q = query(
-                collection(db, 'chats'),
-                where('teacherId', '==', userId)
-                // orderBy('updatedAt', 'desc') // Removed to avoid index requirement
-            );
-        } else {
-            // Student sees only their chats
-            q = query(
-                collection(db, 'chats'),
-                where('studentId', '==', userId)
-                // orderBy('updatedAt', 'desc') // Removed to avoid index requirement
-            );
-        }
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            console.log(`[Messenger] Fetched ${snapshot.docs.length} chats for user ${userId} (${userRole})`);
-            const chatList = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            // Sort client-side
-            chatList.sort((a, b) => {
-                const dateA = a.updatedAt?.toDate ? a.updatedAt.toDate() : new Date(a.updatedAt || 0);
-                const dateB = b.updatedAt?.toDate ? b.updatedAt.toDate() : new Date(b.updatedAt || 0);
-                return dateB - dateA;
-            });
-
+        try {
+            const chatList = await getChats(userId, userRole);
             setChats(chatList);
-            // setLoading(false);
 
             // Calculate total unread
             let unread = 0;
             chatList.forEach(chat => {
-                unread += (chat.unreadCount?.[userId] || 0);
+                if (isAdmin) {
+                    unread += (chat.UNREAD_TEACHER || 0);
+                } else {
+                    unread += (chat.UNREAD_STUDENT || 0);
+                }
             });
             setTotalUnread(unread);
-        }, (error) => {
-            console.error("[Messenger] Error fetching chats:", error);
-        });
-
-        return () => unsubscribe();
+        } catch (error) {
+            console.error("Error fetching chats:", error);
+        }
     }, [userId, userRole, isAdmin]);
+
+    useEffect(() => {
+        if (isOpen) {
+            fetchChats();
+            const interval = setInterval(fetchChats, 5000); // Poll every 5 seconds
+            return () => clearInterval(interval);
+        }
+    }, [isOpen, fetchChats]);
 
     const scrollToBottom = () => {
         messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
     };
 
-    const markAsRead = useCallback(async (chatId) => {
+    const handleMarkAsRead = useCallback(async (chatId) => {
         if (!chatId) return;
-        const chatRef = doc(db, 'chats', chatId);
-
         try {
-            await updateDoc(chatRef, {
-                [`unreadCount.${userId}`]: 0
-            });
+            await markChatRead(chatId, userId, userRole);
+            // Optimistically update local state
+            setChats(prev => prev.map(c => {
+                if (c.ID === chatId) {
+                    return {
+                        ...c,
+                        [isAdmin ? 'UNREAD_TEACHER' : 'UNREAD_STUDENT']: 0
+                    };
+                }
+                return c;
+            }));
+            fetchChats(); // Refresh to be sure
         } catch (err) {
             console.error("Error marking as read:", err);
         }
-    }, [userId]);
+    }, [userId, userRole, isAdmin, fetchChats]);
 
-    // Fetch Messages for Active Chat
-    useEffect(() => {
+    // Fetch Messages for Active Chat (Polling)
+    const fetchActiveMessages = useCallback(async () => {
         if (!activeChat) return;
-
-        const q = query(
-            collection(db, 'chats', activeChat, 'messages'),
-            orderBy('timestamp', 'asc'),
-            limit(50) // Limit to last 50 messages
-        );
-
-        const unsubscribe = onSnapshot(q, (snapshot) => {
-            const msgs = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+        try {
+            const msgs = await getMessages(activeChat);
             setMessages(msgs);
-            scrollToBottom();
-            markAsRead(activeChat);
-        });
+            // Only scroll if new messages arrived? For now, simple scroll.
+            // scrollToBottom(); 
+        } catch (error) {
+            console.error("Error fetching messages:", error);
+        }
+    }, [activeChat]);
 
-        return () => unsubscribe();
-    }, [activeChat, markAsRead]);
+    useEffect(() => {
+        if (activeChat) {
+            fetchActiveMessages();
+            handleMarkAsRead(activeChat);
+            const interval = setInterval(fetchActiveMessages, 3000); // Poll messages every 3s
+            return () => clearInterval(interval);
+        }
+    }, [activeChat, fetchActiveMessages, handleMarkAsRead]);
+
+    // Scroll to bottom when messages change
+    useEffect(() => {
+        scrollToBottom();
+    }, [messages]);
 
     const handleSendMessage = async (e) => {
         e.preventDefault();
@@ -246,53 +147,20 @@ export default function Messenger() {
         const text = newMessage;
         setNewMessage('');
 
-        // Add message
-        await addDoc(collection(db, 'chats', activeChat, 'messages'), {
-            text,
-            senderId: userId,
-            senderName: userName,
-            timestamp: serverTimestamp()
-        });
-
-        // Update chat metadata
-        const chatRef = doc(db, 'chats', activeChat);
-        const currentChat = chats.find(c => c.id === activeChat);
-
-        // Determine recipient ID
-        let recipientId;
-        if (currentChat) {
-            recipientId = !isAdmin ? currentChat.teacherId : currentChat.studentId;
-        } else if (tempChatData && tempChatData.id === activeChat) {
-            recipientId = tempChatData.recipientId;
-        } else {
-            console.error("Cannot find recipient ID");
-            return;
+        try {
+            await sendMessage(activeChat, userId, text, userRole);
+            fetchActiveMessages(); // Refresh immediately
+            fetchChats(); // Refresh chat list for last message update
+        } catch (error) {
+            console.error("Error sending message:", error);
+            alert("메시지 전송 실패");
         }
-
-        await updateDoc(chatRef, {
-            lastMessage: text,
-            updatedAt: serverTimestamp(),
-            [`unreadCount.${recipientId}`]: increment(1)
-        });
     };
 
     const openChat = (chatId) => {
         setActiveChat(chatId);
         setViewMode('chat');
-        setTempChatData(null); // Clear temp data when opening from list
-    };
-
-    const handleSelectTeacher = async (teacher) => {
-        // Check if chat already exists
-        const existingChat = chats.find(c => c.teacherId === teacher.id);
-        if (existingChat) {
-            openChat(existingChat.id);
-        } else {
-            const newChat = await createStudentChat(teacher);
-            if (newChat) {
-                openChat(newChat.id);
-            }
-        }
+        setTempChatData(null);
     };
 
     const handleCloseChat = () => {
@@ -305,9 +173,9 @@ export default function Messenger() {
     const getChatTitle = () => {
         if (!activeChat) return '메신저';
 
-        const chat = chats.find(c => c.id === activeChat);
+        const chat = chats.find(c => c.ID === activeChat);
         if (chat) {
-            return isAdmin ? chat.studentName : (chat.teacherName || '선생님');
+            return isAdmin ? chat.STUDENT_NAME : (chat.TEACHER_NAME || '선생님');
         }
 
         if (tempChatData && tempChatData.id === activeChat) {
@@ -345,103 +213,58 @@ export default function Messenger() {
                     <div className="flex-1 overflow-y-auto bg-gray-50 p-4">
                         {viewMode === 'list' ? (
                             <div className="space-y-4">
-                                {!isAdmin && (
-                                    <div>
-                                        <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">대화 목록</h4>
-                                        <div className="space-y-2">
-                                            {/* 1. Active Chats (from 'chats' state) */}
-                                            {chats.map(chat => (
-                                                <div
-                                                    key={chat.id}
-                                                    onClick={() => openChat(chat.id)}
-                                                    className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:bg-indigo-50 cursor-pointer transition-colors flex justify-between items-center"
-                                                >
-                                                    <div className="flex items-center space-x-3">
-                                                        <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
-                                                            <User className="w-5 h-5" />
-                                                        </div>
-                                                        <div>
-                                                            <div className="font-bold text-gray-800">{chat.teacherName}</div>
-                                                            <div className="text-xs text-gray-500 truncate w-32">
-                                                                {chat.lastMessage}
-                                                            </div>
-                                                        </div>
-                                                    </div>
-                                                    {(chat.unreadCount?.[userId] > 0) && (
-                                                        <div className="w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
-                                                            {chat.unreadCount[userId]}
-                                                        </div>
-                                                    )}
-                                                </div>
-                                            ))}
-
-                                            {/* 2. Available Teachers (who don't have a chat yet) */}
-                                            {teachers
-                                                .filter(teacher => !chats.some(c => c.teacherId === teacher.id))
-                                                .map(teacher => (
+                                <div>
+                                    <h4 className="text-xs font-bold text-gray-400 uppercase mb-2">대화 목록</h4>
+                                    <div className="space-y-2">
+                                        {chats.length === 0 ? (
+                                            <div className="text-center text-gray-400 text-sm py-4">
+                                                대화 내역이 없습니다.
+                                            </div>
+                                        ) : (
+                                            chats.map(chat => {
+                                                const unreadCount = isAdmin ? chat.UNREAD_TEACHER : chat.UNREAD_STUDENT;
+                                                const displayName = isAdmin ? chat.STUDENT_NAME : chat.TEACHER_NAME;
+                                                return (
                                                     <div
-                                                        key={teacher.id}
-                                                        onClick={() => handleSelectTeacher(teacher)}
-                                                        className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:bg-indigo-50 cursor-pointer transition-colors flex justify-between items-center opacity-80 hover:opacity-100"
+                                                        key={chat.ID}
+                                                        onClick={() => openChat(chat.ID)}
+                                                        className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:bg-indigo-50 cursor-pointer transition-colors flex justify-between items-center"
                                                     >
                                                         <div className="flex items-center space-x-3">
-                                                            <div className="w-10 h-10 bg-gray-100 rounded-full flex items-center justify-center text-gray-500">
+                                                            <div className="w-10 h-10 bg-indigo-100 rounded-full flex items-center justify-center text-indigo-600">
                                                                 <User className="w-5 h-5" />
                                                             </div>
                                                             <div>
-                                                                <div className="font-bold text-gray-700">{teacher.name}</div>
-                                                                <div className="text-xs text-gray-400">
-                                                                    대화 시작하기
+                                                                <div className="font-bold text-gray-800">{displayName}</div>
+                                                                <div className="text-xs text-gray-500 truncate w-32">
+                                                                    {chat.LAST_MESSAGE}
                                                                 </div>
                                                             </div>
                                                         </div>
+                                                        {(unreadCount > 0) && (
+                                                            <div className="w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
+                                                                {unreadCount}
+                                                            </div>
+                                                        )}
                                                     </div>
-                                                ))}
-
-                                            {chats.length === 0 && teachers.length === 0 && (
-                                                <div className="text-center text-gray-400 text-sm py-4">
-                                                    대화 가능한 선생님이 없습니다.
-                                                </div>
-                                            )}
-                                        </div>
+                                                );
+                                            })
+                                        )}
                                     </div>
-                                )}
-
-                                {isAdmin && (
-                                    <div className="space-y-2">
-                                        {chats.map(chat => (
-                                            <div
-                                                key={chat.id}
-                                                onClick={() => openChat(chat.id)}
-                                                className="bg-white p-3 rounded-xl border border-gray-100 shadow-sm hover:bg-indigo-50 cursor-pointer transition-colors flex justify-between items-center"
-                                            >
-                                                <div>
-                                                    <div className="font-bold text-gray-800">{chat.studentName}</div>
-                                                    <div className="text-sm text-gray-500 truncate w-48">{chat.lastMessage}</div>
-                                                </div>
-                                                {(chat.unreadCount?.[userId] > 0) && (
-                                                    <div className="w-5 h-5 bg-red-500 rounded-full text-white text-xs flex items-center justify-center font-bold">
-                                                        {chat.unreadCount[userId]}
-                                                    </div>
-                                                )}
-                                            </div>
-                                        ))}
-                                        {chats.length === 0 && <div className="text-center text-gray-400 mt-10">대화가 없습니다.</div>}
-                                    </div>
-                                )}
+                                </div>
                             </div>
                         ) : (
                             // Messages Area
                             <div className="space-y-4">
                                 {messages.map(msg => {
-                                    const isMe = msg.senderId === userId;
+                                    const isMe = msg.SENDER_ID === userId;
                                     return (
-                                        <div key={msg.id} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
+                                        <div key={msg.ID} className={`flex ${isMe ? 'justify-end' : 'justify-start'}`}>
                                             <div className={`max-w-[80%] px-4 py-2 rounded-2xl text-sm ${isMe
                                                 ? 'bg-indigo-600 text-white rounded-tr-none'
                                                 : 'bg-white text-gray-800 border border-gray-200 rounded-tl-none shadow-sm'
                                                 }`}>
-                                                {msg.text}
+                                                {msg.CONTENT}
                                             </div>
                                         </div>
                                     );

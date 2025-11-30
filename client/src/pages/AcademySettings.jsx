@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Settings, Save, ArrowLeft, Building, Type, Layout, Info } from 'lucide-react';
-import { db } from '../firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { getSettings, saveSettings } from '../api/client';
 
 export default function AcademySettings() {
     const navigate = useNavigate();
@@ -27,20 +26,17 @@ export default function AcademySettings() {
             }
 
             try {
-                const docRef = doc(db, 'academies', academyId);
-                const docSnap = await getDoc(docRef);
-
-                if (docSnap.exists()) {
-                    const data = docSnap.data();
+                const data = await getSettings(`academy_${academyId}`);
+                if (data) {
                     setSettings({
                         name: data.name || '',
-                        logoText: data.settings?.logoText || data.name || 'Eastern WordTest',
-                        loginTitle: data.settings?.loginTitle || 'Eastern WordTest',
-                        loginSubtitle: data.settings?.loginSubtitle || '이스턴 영어 공부방',
-                        footerInfo: data.settings?.footerInfo || '',
+                        logoText: data.logoText || 'Eastern WordTest',
+                        loginTitle: data.loginTitle || 'Eastern WordTest',
+                        loginSubtitle: data.loginSubtitle || '이스턴 영어 공부방',
+                        footerInfo: data.footerInfo || '',
                     });
                 } else {
-                    console.log("Academy document not found, initializing defaults.");
+                    console.log("Academy settings not found, initializing defaults.");
                 }
             } catch (error) {
                 console.error("Error fetching settings:", error);
@@ -62,19 +58,10 @@ export default function AcademySettings() {
         setSaving(true);
 
         try {
-            const docRef = doc(db, 'academies', academyId);
-            await setDoc(docRef, {
-                name: settings.name,
-                settings: {
-                    logoText: settings.logoText,
-                    loginTitle: settings.loginTitle,
-                    loginSubtitle: settings.loginSubtitle,
-                    footerInfo: settings.footerInfo
-                }
-            }, { merge: true });
+            await saveSettings(`academy_${academyId}`, settings);
 
             alert('설정이 저장되었습니다.');
-            if (confirm('변경 사항을 적용하기 위해 페이지를 새로고침 하시겠습니까?')) {
+            if (window.confirm('변경 사항을 적용하기 위해 페이지를 새로고침 하시겠습니까?')) {
                 window.location.reload();
             }
         } catch (error) {

@@ -1,10 +1,9 @@
 import React from 'react';
 import { Outlet, useNavigate, useLocation } from 'react-router-dom';
 import { LogOut, Home } from 'lucide-react';
-import { db } from '../firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import Messenger from './Messenger';
 import AdminMenu from './AdminMenu';
+import { getSettings } from '../api/client';
 
 export default function Layout() {
     const navigate = useNavigate();
@@ -18,13 +17,9 @@ export default function Layout() {
         const fetchSettings = async () => {
             if (academyId) {
                 try {
-                    const docRef = doc(db, 'academies', academyId);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        if (data.settings?.logoText) {
-                            setLogoText(data.settings.logoText);
-                        }
+                    const data = await getSettings(`academy_${academyId}`);
+                    if (data && data.logoText) {
+                        setLogoText(data.logoText);
                     }
                 } catch (error) {
                     console.error("Error fetching settings:", error);

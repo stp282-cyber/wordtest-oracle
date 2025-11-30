@@ -1,11 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { auth, db } from '../firebase';
-import { signInWithEmailAndPassword } from 'firebase/auth';
-import { doc, getDoc, setDoc, updateDoc } from 'firebase/firestore';
+import { login } from '../api/client';
 
 export default function Login() {
-    const [username, setUsername] = useState('');
+    const [email, setEmail] = useState('');
     const [password, setPassword] = useState('');
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
@@ -18,112 +16,36 @@ export default function Login() {
         subtitle: '이스턴 영어 공부방'
     });
 
-    useEffect(() => {
-        const fetchBranding = async () => {
-            const params = new URLSearchParams(location.search);
-            const academyId = params.get('academy') || localStorage.getItem('academyId');
-
-            if (academyId) {
-                try {
-                    const docRef = doc(db, 'academies', academyId);
-                    const docSnap = await getDoc(docRef);
-                    if (docSnap.exists()) {
-                        const data = docSnap.data();
-                        if (data.settings) {
-                            setBranding({
-                                title: data.settings.loginTitle || 'Eastern WordTest',
-                                subtitle: data.settings.loginSubtitle || '이스턴 영어 공부방'
-                            });
-                        }
-                    }
-                } catch (error) {
-                    console.error("Error fetching branding:", error);
-                }
-            }
-        };
-        fetchBranding();
-    }, [location]);
-
-    const getEmail = (id) => {
-        return id.includes('@') ? id : `${id}@wordtest.com`;
-    };
-
     const handleLogin = async (e) => {
         e.preventDefault();
-        setError('');
         setLoading(true);
+        setError('');
 
         try {
-            const email = getEmail(username);
-            const userCredential = await signInWithEmailAndPassword(auth, email, password);
-            const user = userCredential.user;
+            const { user } = await login(email, password);
 
-            // Get user data from Firestore
-            const userDoc = await getDoc(doc(db, 'users', user.uid));
-            let userData;
+            // 로컬 스토리지에 사용자 정보 저장
+            // Oracle DB 컬럼명은 대문자일 수 있으므로 확인 필요
+            // server.js에서 outFormat: oracledb.OUT_FORMAT_OBJECT 사용
+            const userId = user.ID || user.id;
+            const userName = user.USERNAME || user.username;
+            const userRole = user.ROLE || user.role;
 
-            if (userDoc.exists()) {
-                userData = userDoc.data();
-            } else {
-                // Auto-recover: Create missing Firestore document
-                userData = {
-                    username: email,
-                    name: email.split('@')[0],
-                    role: 'student', // Default to student
-                    createdAt: new Date().toISOString(),
-                    current_word_index: 0,
-                    words_per_session: 10,
-                    book_name: '기본',
-                    study_days: '1,2,3,4,5',
-                    academyId: 'academy_default' // Default academy for recovered users
-                };
-            }
+            localStorage.setItem('userId', userId);
+            localStorage.setItem('userName', userName);
+            localStorage.setItem('userRole', userRole);
 
-            // Special case for the developer/owner to get admin access if needed
-            if (email.includes('stp282')) {
-                userData.role = 'super_admin'; // Grant Super Admin
-                // Ensure this is updated in Firestore
-                await setDoc(doc(db, 'users', user.uid), { role: 'super_admin' }, { merge: true });
-            }
-
-            // If it was a new user, save the full data
-            if (!userDoc.exists()) {
-                await setDoc(doc(db, 'users', user.uid), userData);
-            }
-
-            // Check if student is suspended (only for students, not admins)
-            if (userData.role === 'student' && userData.status === 'suspended') {
-                setError('휴원 중인 학생은 로그인할 수 없습니다. 관리자에게 문의하세요.');
-                setLoading(false);
-                return;
-            }
-
-            localStorage.setItem('token', await user.getIdToken());
-            localStorage.setItem('role', userData.role);
-            localStorage.setItem('username', userData.username);
-            localStorage.setItem('name', userData.name);
-            localStorage.setItem('userId', user.uid);
-            localStorage.setItem('academyId', userData.academyId || 'academy_default');
-
-            if (userData.role === 'admin') {
+            if (userRole === 'admin' || userRole === 'super_admin') {
                 navigate('/admin');
-            } else if (userData.role === 'super_admin') {
-                navigate('/super-admin');
             } else {
-                // Update last_login for students
-                if (userDoc.exists()) {
-                    await updateDoc(doc(db, 'users', user.uid), {
-                        last_login: new Date().toISOString().split('T')[0]
-                    });
-                }
                 navigate('/student');
             }
         } catch (err) {
             console.error(err);
-            if (err.code === 'auth/invalid-credential' || err.code === 'auth/user-not-found' || err.code === 'auth/wrong-password') {
+            if (err.response && err.response.status === 401) {
                 setError('아이디 또는 비밀번호가 올바르지 않습니다.');
             } else {
-                setError('로그인 중 오류가 발생했습니다: ' + err.message);
+                setError('로그인 중 오류가 발생했습니다.');
             }
         } finally {
             setLoading(false);
@@ -155,14 +77,14 @@ export default function Login() {
 
                 <form onSubmit={handleLogin} className="space-y-4">
                     <div>
-                        <label className="block text-sm font-medium text-gray-700">아이디</label>
+                        <label className="block text-sm font-medium text-gray-700">이메일</label>
                         <input
-                            type="text"
+                            type="email"
                             required
-                            placeholder="예: student1"
+                            placeholder="예: student1@wordtest.com"
                             className="w-full px-4 py-2 mt-1 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 focus:border-indigo-500 outline-none transition-all"
-                            value={username}
-                            onChange={(e) => setUsername(e.target.value)}
+                            value={email}
+                            onChange={(e) => setEmail(e.target.value)}
                         />
                     </div>
 

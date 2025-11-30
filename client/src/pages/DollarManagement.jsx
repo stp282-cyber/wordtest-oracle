@@ -1,37 +1,36 @@
 import React, { useState, useEffect } from 'react';
-import { db } from '../firebase';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
 import { DollarSign, Save, Settings } from 'lucide-react';
+import { getSettings, saveSettings } from '../api/client';
 
 export default function DollarManagement() {
     const [settings, setSettings] = useState({
         daily_completion_reward: 0.5,
         curriculum_completion_reward: 0.1,
         game_high_score_reward: 0.05,
-        game_high_score_threshold: 80, // Default threshold
+        game_high_score_threshold: 80,
         game_daily_max_reward: 0.5
     });
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
 
     useEffect(() => {
-        const fetchSettings = async () => {
-            try {
-                const academyId = localStorage.getItem('academyId') || 'academy_default';
-                const docRef = doc(db, 'settings', `rewards_${academyId}`);
-                const docSnap = await getDoc(docRef);
-                if (docSnap.exists()) {
-                    setSettings(prev => ({ ...prev, ...docSnap.data() }));
-                }
-            } catch (error) {
-                console.error("Error fetching settings:", error);
-            } finally {
-                setLoading(false);
-            }
-        };
-
         fetchSettings();
     }, []);
+
+    const fetchSettings = async () => {
+        try {
+            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            const key = `rewards_${academyId}`;
+            const data = await getSettings(key);
+            if (data && Object.keys(data).length > 0) {
+                setSettings(prev => ({ ...prev, ...data }));
+            }
+        } catch (error) {
+            console.error("Error fetching settings:", error);
+        } finally {
+            setLoading(false);
+        }
+    };
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -45,8 +44,8 @@ export default function DollarManagement() {
         setSaving(true);
         try {
             const academyId = localStorage.getItem('academyId') || 'academy_default';
-            const docRef = doc(db, 'settings', `rewards_${academyId}`);
-            await setDoc(docRef, settings, { merge: true });
+            const key = `rewards_${academyId}`;
+            await saveSettings(key, settings);
             alert('설정이 저장되었습니다.');
         } catch (error) {
             console.error("Error saving settings:", error);

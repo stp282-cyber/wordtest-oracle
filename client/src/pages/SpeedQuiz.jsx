@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { Timer, Zap, Trophy, ArrowLeft, RefreshCw, CheckCircle, XCircle, DollarSign } from 'lucide-react';
-import { db } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 import { addDollars, getRewardSettings, getDailyGameEarnings } from '../utils/dollarUtils';
+import { getGameWords } from '../api/client';
 
 export default function SpeedQuiz() {
     const [loading, setLoading] = useState(true);
@@ -35,33 +34,7 @@ export default function SpeedQuiz() {
             }
 
             try {
-                let targetWords = [];
-                try {
-                    const wordsQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName),
-                        where('word_number', '>=', parseInt(studyStartIndex)),
-                        where('word_number', '<', parseInt(studyEndIndex))
-                    );
-                    const querySnapshot = await getDocs(wordsQuery);
-                    targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                } catch (queryError) {
-                    console.warn("Index query failed, falling back to client-side filtering:", queryError);
-                    const fallbackQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName)
-                    );
-                    const fallbackSnapshot = await getDocs(fallbackQuery);
-                    const allBookWords = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-                    const start = parseInt(studyStartIndex);
-                    const end = parseInt(studyEndIndex);
-
-                    targetWords = allBookWords.filter(w => {
-                        const wn = parseInt(w.word_number);
-                        return wn >= start && wn < end;
-                    });
-                }
+                const targetWords = await getGameWords(bookName, studyStartIndex, studyEndIndex);
 
                 if (targetWords.length < 4) {
                     alert('단어가 너무 적습니다. 최소 4개 이상의 단어가 필요합니다.');

@@ -1,13 +1,3 @@
-import React, { useState, useEffect } from 'react';
-import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowRight, Check, RotateCcw, BookOpen, Trophy, DollarSign } from 'lucide-react';
-import { db } from '../firebase';
-import { doc, getDoc, addDoc, updateDoc, collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
-import confetti from 'canvas-confetti';
-import { addDollars, getRewardSettings, hasReceivedDailyReward } from '../utils/dollarUtils';
-import { addTestToSummary } from '../utils/dailySummary';
-
-const isSentence = (text) => text && text.trim().split(/\s+/).length >= 3;
 
 const shuffleArray = (array) => {
     const shuffled = [...array];
@@ -472,39 +462,6 @@ export default function TestInterface() {
             // Save to Daily Summary (instead of test_results)
             const today = new Date().toISOString().split('T')[0];
             const academyId = localStorage.getItem('academyId') || 'academy_default';
-
-            await addTestToSummary(userId, {
-                date: today,
-                score: score,
-                correct: correctCount,
-                total: totalWords,
-                book_name: currentBookName,
-                test_mode: testMode,
-                range_start: rangeStart,
-                range_end: rangeEnd,
-                academyId: academyId,
-                timestamp: new Date().toISOString(),
-                // Additional metadata
-                new_words_score: newWordsScore,
-                new_words_total: newTotal,
-                new_words_correct: newCorrect,
-                review_words_score: reviewWordsScore,
-                review_words_total: reviewTotal,
-                review_words_correct: reviewCorrect,
-                first_attempt_score: firstAttemptScore || score,
-                retry_count: retryCount,
-                test_type: initialTestType,
-                scheduled_date: location.state?.scheduledDate || null
-            });
-
-            console.log(`✅ Test result saved to daily summary: ${score}점`);
-
-            // Reward Calculation
-            const rewardSettings = await getRewardSettings();
-
-            // Update User Progress
-            const userRef = doc(db, 'users', userId);
-            const userSnap = await getDoc(userRef);
 
             if (userSnap.exists()) {
                 const userData = userSnap.data();

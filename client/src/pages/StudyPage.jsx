@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { BookOpen, Check } from 'lucide-react';
-import { db } from '../firebase';
-import { doc, getDoc, collection, query, where, getDocs, updateDoc } from 'firebase/firestore';
+import { getStudyWords, getUserSettings, updateUserSettings } from '../api/client';
 
 export default function StudyPage() {
     const [loading, setLoading] = useState(true);
@@ -23,16 +22,8 @@ export default function StudyPage() {
 
             try {
                 // 1. Get User Settings
-                const userRef = doc(db, 'users', userId);
-                const userDoc = await getDoc(userRef);
+                const settings = await getUserSettings(userId);
 
-                if (!userDoc.exists()) {
-                    alert('사용자 설정을 찾을 수 없습니다.');
-                    navigate('/student');
-                    return;
-                }
-
-                const settings = userDoc.data();
                 const currentBookName = location.state?.bookName || settings.book_name || '기본';
                 setBookName(currentBookName);
 
@@ -64,42 +55,15 @@ export default function StudyPage() {
 
                 setRangeInfo({ start: startWordNumber, end: endWordNumber });
 
-                // 3. Fetch Words (Try optimized range query first, fallback to client-side filtering)
-                let targetWords = [];
-                try {
-                    const wordsQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', currentBookName),
-                        where('word_number', '>=', startWordNumber),
-                        where('word_number', '<', endWordNumber)
-                    );
-                    const querySnapshot = await getDocs(wordsQuery);
-                    targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                } catch (queryError) {
-                    console.warn("Index query failed, falling back to client-side filtering:", queryError);
-                    // Fallback: Fetch all words for the book and filter
-                    const fallbackQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', currentBookName)
-                    );
-                    const fallbackSnapshot = await getDocs(fallbackQuery);
-                    const allBookWords = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                // 3. Fetch Words
+                const targetWords = await getStudyWords(currentBookName, startWordNumber, endWordNumber);
 
-                    targetWords = allBookWords.filter(w => {
-                        const wn = parseInt(w.word_number);
-                        return wn >= startWordNumber && wn < endWordNumber;
-                    });
-                }
-
-                // Debug Info (Updated for range query)
+                // Debug Info
                 setDebugInfo({
                     totalWords: targetWords.length,
                     firstWord: targetWords[0] || null,
                     lastWord: targetWords[targetWords.length - 1] || null
                 });
-
-                // 4. Sort (Filtering is done by DB or Client)
-                targetWords.sort((a, b) => parseInt(a.word_number) - parseInt(b.word_number));
 
                 setWords(targetWords);
                 setLoading(false);
@@ -146,124 +110,122 @@ export default function StudyPage() {
             if (loading) return; // Wait for loading to complete
 
             // Only check for auto-transition when there are no words in the current range
-            // AND we have debug info showing the book has words
-            if (words.length === 0 && debugInfo && debugInfo.totalWords > 0) {
+            // AND we have debug info showing the book has words (or we assume it should)
+
+            if (words.length === 0) {
                 const userId = localStorage.getItem('userId');
                 if (!userId) return;
 
                 try {
-                    const userRef = doc(db, 'users', userId);
-                    const userDoc = await getDoc(userRef);
+                    const userData = await getUserSettings(userId);
 
                     if (isCancelled) return;
 
-                    if (userDoc.exists()) {
-                        const userData = userDoc.data();
+                    // Get current progress for this book
+                    let currentWordIndex = 0;
+                    if (userData.book_progress && userData.book_progress[bookName] !== undefined) {
+                        currentWordIndex = userData.book_progress[bookName];
+                    } else if (bookName === userData.book_name) {
+                        currentWordIndex = userData.current_word_index || 0;
+                    }
 
-                        // Get current progress for this book
-                        let currentWordIndex = 0;
-                        if (userData.book_progress && userData.book_progress[bookName] !== undefined) {
-                            currentWordIndex = userData.book_progress[bookName];
-                        } else if (bookName === userData.book_name) {
-                            currentWordIndex = userData.current_word_index || 0;
-                        }
+                    // CRITICAL: Check if the requested range is sequential
+                    if (rangeInfo.start > currentWordIndex + 1) {
+                        console.log(`Skipping ahead detected. Range start: ${rangeInfo.start}, Current progress: ${currentWordIndex}`);
+                        alert('순차적으로 학습해야 합니다.\n현재 진행 중인 단어부터 학습해주세요.');
+                        navigate('/student');
+                        return;
+                    }
 
-                        // CRITICAL: Check if the requested range is sequential
-                        // If student clicked on a future date (skipping ahead), don't auto-transition
-                        if (rangeInfo.start > currentWordIndex + 1) {
-                            console.log(`Skipping ahead detected. Range start: ${rangeInfo.start}, Current progress: ${currentWordIndex}`);
-                            alert('순차적으로 학습해야 합니다.\n현재 진행 중인 단어부터 학습해주세요.');
-                            navigate('/student');
-                            return;
-                        }
+                    // Check if there are any words remaining in the book after the current index
+                    const remainingWords = await getStudyWords(bookName, currentWordIndex + 1, currentWordIndex + 2);
+                    if (remainingWords.length > 0) {
+                        console.log("Still have words to study.");
+                        return;
+                    }
 
-                        // Get the maximum word_number in this book
-                        const maxWordNumber = debugInfo.lastWord ? parseInt(debugInfo.lastWord.word_number) : 0;
+                    // If we are here, there are no more words after current index.
 
-                        // Only transition if current progress is beyond the last word
-                        // This ensures ALL words are completed before transitioning
-                        if (currentWordIndex < maxWordNumber) {
-                            // Still have words to study, don't auto-transition
-                            console.log(`Still have words to study. Current: ${currentWordIndex}, Max: ${maxWordNumber}`);
-                            return;
-                        }
+                    // Changed: Get queue from curriculum_queues based on active_books index
+                    const activeBooks = userData.active_books || [];
+                    const bookIndex = activeBooks.findIndex(b => b === bookName);
 
-                        // Changed: Get queue from curriculum_queues based on active_books index
-                        const activeBooks = userData.active_books || [];
-                        const bookIndex = activeBooks.findIndex(b => b === bookName);
+                    // Convert curriculum_queues object to array (if needed)
+                    let curriculumQueuesArray = [];
+                    const curriculumQueuesObj = userData.curriculum_queues || {};
+                    if (typeof curriculumQueuesObj === 'object' && !Array.isArray(curriculumQueuesObj)) {
+                        Object.keys(curriculumQueuesObj).forEach(key => {
+                            curriculumQueuesArray[parseInt(key)] = curriculumQueuesObj[key] || [];
+                        });
+                    } else {
+                        curriculumQueuesArray = curriculumQueuesObj;
+                    }
 
-                        // Convert curriculum_queues object to array (Firestore stores as object)
-                        let curriculumQueuesArray = [];
-                        const curriculumQueuesObj = userData.curriculum_queues || {};
-                        if (typeof curriculumQueuesObj === 'object' && !Array.isArray(curriculumQueuesObj)) {
-                            Object.keys(curriculumQueuesObj).forEach(key => {
-                                curriculumQueuesArray[parseInt(key)] = curriculumQueuesObj[key] || [];
-                            });
-                        } else {
-                            curriculumQueuesArray = curriculumQueuesObj;
-                        }
+                    const nextBooks = (bookIndex !== -1 && curriculumQueuesArray[bookIndex]) ? curriculumQueuesArray[bookIndex] : [];
 
-                        const nextBooks = (bookIndex !== -1 && curriculumQueuesArray[bookIndex]) ? curriculumQueuesArray[bookIndex] : [];
+                    if (nextBooks.length > 0) {
+                        const nextBookItem = nextBooks[0];
+                        const nextBookName = typeof nextBookItem === 'string' ? nextBookItem : nextBookItem.title;
 
-                        if (nextBooks.length > 0) {
-                            const nextBookItem = nextBooks[0];
-                            const nextBookName = typeof nextBookItem === 'string' ? nextBookItem : nextBookItem.title;
+                        if (!nextBookName) return;
 
-                            if (!nextBookName) return;
+                        // Use setTimeout to avoid blocking rendering and React state updates
+                        setTimeout(async () => {
+                            const confirmTransition = window.confirm(
+                                `'${bookName}' 단어장의 모든 학습이 완료되었습니다.\n다음 교재 '${nextBookName}'(으)로 이동하시겠습니까?`
+                            );
 
-                            // Use setTimeout to avoid blocking rendering and React state updates
-                            setTimeout(async () => {
-                                const confirmTransition = window.confirm(
-                                    `'${bookName}' 단어장의 모든 학습이 완료되었습니다.\n다음 교재 '${nextBookName}'(으)로 이동하시겠습니까?`
-                                );
-
-                                if (confirmTransition) {
-                                    const newActiveBooks = [...activeBooks];
-                                    // Replace the completed book with the next one at the same index
-                                    if (bookIndex !== -1) {
-                                        newActiveBooks[bookIndex] = nextBookName;
-                                    }
-
-                                    const newQueuesArray = [...curriculumQueuesArray];
-                                    // Update the queue for this curriculum slot
-                                    if (bookIndex !== -1) {
-                                        newQueuesArray[bookIndex] = nextBooks.slice(1);
-                                    }
-
-                                    // Convert array to object for Firestore (no nested arrays)
-                                    const newQueuesObject = {};
-                                    newQueuesArray.forEach((queue, index) => {
-                                        newQueuesObject[index] = queue || [];
-                                    });
-
-                                    const updates = {
-                                        active_books: newActiveBooks,
-                                        curriculum_queues: newQueuesObject,
-                                        [`book_progress.${nextBookName}`]: 0
-                                    };
-
-                                    // Apply queue item settings to book_settings if it's an object
-                                    if (typeof nextBookItem === 'object' && nextBookItem.test_mode) {
-                                        updates[`book_settings.${nextBookName}.test_mode`] = nextBookItem.test_mode;
-                                    }
-                                    if (typeof nextBookItem === 'object' && nextBookItem.words_per_session) {
-                                        updates[`book_settings.${nextBookName}.words_per_session`] = nextBookItem.words_per_session;
-                                    }
-
-                                    // If this was the primary book, update primary book fields
-                                    if (userData.book_name === bookName) {
-                                        updates.book_name = nextBookName;
-                                        updates.current_word_index = 0;
-                                    }
-
-                                    await updateDoc(userRef, updates);
-                                    alert('교재가 변경되었습니다. 학습을 시작합니다.');
-                                    window.location.reload();
-                                } else {
-                                    navigate('/student');
+                            if (confirmTransition) {
+                                const newActiveBooks = [...activeBooks];
+                                // Replace the completed book with the next one at the same index
+                                if (bookIndex !== -1) {
+                                    newActiveBooks[bookIndex] = nextBookName;
                                 }
-                            }, 100);
-                        }
+
+                                const newQueuesArray = [...curriculumQueuesArray];
+                                // Update the queue for this curriculum slot
+                                if (bookIndex !== -1) {
+                                    newQueuesArray[bookIndex] = nextBooks.slice(1);
+                                }
+
+                                // Convert array to object for DB
+                                const newQueuesObject = {};
+                                newQueuesArray.forEach((queue, index) => {
+                                    newQueuesObject[index] = queue || [];
+                                });
+
+                                const updates = {
+                                    active_books: newActiveBooks,
+                                    curriculum_queues: newQueuesObject,
+                                    book_progress: { ...userData.book_progress, [nextBookName]: 0 }
+                                };
+
+                                // Apply queue item settings to book_settings if it's an object
+                                const newBookSettings = { ...userData.book_settings };
+                                if (typeof nextBookItem === 'object') {
+                                    newBookSettings[nextBookName] = newBookSettings[nextBookName] || {};
+                                    if (nextBookItem.test_mode) {
+                                        newBookSettings[nextBookName].test_mode = nextBookItem.test_mode;
+                                    }
+                                    if (nextBookItem.words_per_session) {
+                                        newBookSettings[nextBookName].words_per_session = nextBookItem.words_per_session;
+                                    }
+                                }
+                                updates.book_settings = newBookSettings;
+
+                                // If this was the primary book, update primary book fields
+                                if (userData.book_name === bookName) {
+                                    updates.book_name = nextBookName;
+                                    updates.current_word_index = 0;
+                                }
+
+                                await updateUserSettings(userId, updates);
+                                alert('교재가 변경되었습니다. 학습을 시작합니다.');
+                                window.location.reload();
+                            } else {
+                                navigate('/student');
+                            }
+                        }, 100);
                     }
                 } catch (err) {
                     console.error("Error auto-transitioning:", err);
@@ -295,9 +257,7 @@ export default function StudyPage() {
                             <p>요청 범위: {rangeInfo.start} ~ {rangeInfo.end - 1}</p>
                             {debugInfo && (
                                 <>
-                                    <p>DB 전체 단어 수: {debugInfo.totalWords}</p>
-                                    <p>필터링 전 첫 단어: {JSON.stringify(debugInfo.firstWord)}</p>
-                                    <p>필터링 전 마지막 단어: {JSON.stringify(debugInfo.lastWord)}</p>
+                                    <p>DB 조회 단어 수: {debugInfo.totalWords}</p>
                                 </>
                             )}
                         </div>
@@ -349,10 +309,10 @@ export default function StudyPage() {
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
                             {words.map((word, index) => (
                                 <div
-                                    key={word.id}
+                                    key={word.ID || word.id}
                                     className="p-4 bg-gray-50 rounded-xl border border-gray-200 hover:border-indigo-300 transition-all cursor-pointer"
-                                    onClick={() => speakWord(word.english)}
-                                    aria-label={`발음 듣기: ${word.english}`}
+                                    onClick={() => speakWord(word.ENGLISH || word.english)}
+                                    aria-label={`발음 듣기: ${word.ENGLISH || word.english}`}
                                 >
                                     <div className="flex items-start justify-between">
                                         <div className="flex-1">
@@ -360,17 +320,17 @@ export default function StudyPage() {
                                                 <span className="text-xs font-medium text-indigo-600 bg-indigo-50 px-2 py-1 rounded">
                                                     {index + 1}
                                                 </span>
-                                                {word.word_number && (
+                                                {(word.WORD_NUMBER || word.word_number) && (
                                                     <span className="text-xs text-gray-500">
-                                                        #{word.word_number}
+                                                        #{word.WORD_NUMBER || word.word_number}
                                                     </span>
                                                 )}
                                             </div>
                                             <h3 className="text-xl font-bold text-gray-900 mb-1">
-                                                {word.english}
+                                                {word.ENGLISH || word.english}
                                             </h3>
                                             <p className="text-gray-600">
-                                                {word.korean}
+                                                {word.KOREAN || word.korean}
                                             </p>
                                         </div>
                                     </div>

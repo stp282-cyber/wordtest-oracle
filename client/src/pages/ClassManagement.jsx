@@ -1,8 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowLeft, Plus, Trash2, Users } from 'lucide-react';
-import { db } from '../firebase';
-import { collection, getDocs, addDoc, deleteDoc, doc, query, where } from 'firebase/firestore';
+import { getClasses, addClass, deleteClass } from '../api/client';
 
 export default function ClassManagement() {
     const [classes, setClasses] = useState([]);
@@ -16,11 +15,7 @@ export default function ClassManagement() {
 
     const fetchClasses = async () => {
         try {
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
-            // Filter classes by academyId
-            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
-            const querySnapshot = await getDocs(q);
-            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            const data = await getClasses();
             setClasses(data);
         } catch (err) {
             console.error(err);
@@ -35,15 +30,9 @@ export default function ClassManagement() {
         if (!newClassName.trim()) return;
 
         try {
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
-            const docRef = await addDoc(collection(db, 'classes'), {
-                name: newClassName,
-                created_at: new Date().toISOString(),
-                academyId // Add academyId
-            });
-
-            setClasses([...classes, { id: docRef.id, name: newClassName, created_at: new Date().toISOString(), academyId }]);
+            await addClass(newClassName);
             setNewClassName('');
+            fetchClasses();
         } catch (err) {
             console.error(err);
             alert('반 추가 실패');
@@ -54,8 +43,8 @@ export default function ClassManagement() {
         if (!window.confirm('정말 이 반을 삭제하시겠습니까? 소속된 학생들의 반 정보가 초기화됩니다.')) return;
 
         try {
-            await deleteDoc(doc(db, 'classes', id));
-            setClasses(classes.filter((c) => c.id !== id));
+            await deleteClass(id);
+            fetchClasses();
         } catch (err) {
             console.error(err);
             alert('반 삭제 실패');
@@ -109,13 +98,13 @@ export default function ClassManagement() {
                     ) : (
                         <ul className="divide-y divide-gray-100">
                             {classes.map((cls) => (
-                                <li key={cls.id} className="p-6 flex items-center justify-between hover:bg-gray-50 transition-colors">
+                                <li key={cls.ID || cls.id} className="p-6 flex items-center justify-between hover:bg-gray-50 transition-colors">
                                     <div>
-                                        <h3 className="text-lg font-medium text-gray-900">{cls.name}</h3>
-                                        <p className="text-sm text-gray-500">ID: {cls.id}</p>
+                                        <h3 className="text-lg font-medium text-gray-900">{cls.NAME || cls.name}</h3>
+                                        <p className="text-sm text-gray-500">ID: {cls.ID || cls.id}</p>
                                     </div>
                                     <button
-                                        onClick={() => handleDeleteClass(cls.id)}
+                                        onClick={() => handleDeleteClass(cls.ID || cls.id)}
                                         className="p-2 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded-lg transition-all"
                                         title="삭제"
                                     >

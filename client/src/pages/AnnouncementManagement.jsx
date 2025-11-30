@@ -1,103 +1,39 @@
-import React, { useState, useEffect, useCallback } from 'react';
-import { db, auth } from '../firebase';
-import { collection, addDoc, getDocs, deleteDoc, doc, query, orderBy, where, getDoc, limit } from 'firebase/firestore';
+import React, { useState, useEffect } from 'react';
 import { Plus, Trash2, Megaphone } from 'lucide-react';
+import { getAnnouncements, addAnnouncement, deleteAnnouncement } from '../api/client';
 
 export default function AnnouncementManagement() {
     const [announcements, setAnnouncements] = useState([]);
-    const [classes, setClasses] = useState([]);
     const [newAnnouncement, setNewAnnouncement] = useState({ title: '', content: '', targetClassId: 'all' });
     const [loading, setLoading] = useState(true);
-    const [academyId, setAcademyId] = useState(null);
-
-    const fetchClasses = useCallback(async () => {
-        if (!academyId) return;
-        try {
-            // Filter classes by academyId
-            const q = query(collection(db, 'classes'), where('academyId', '==', academyId));
-            const snapshot = await getDocs(q);
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            setClasses(data);
-        } catch (error) {
-            console.error("Error fetching classes:", error);
-        }
-    }, [academyId]);
-
-    const fetchAnnouncements = useCallback(async () => {
-        if (!academyId) return;
-        try {
-            console.log("Fetching announcements for academyId:", academyId);
-            // Filter announcements by academyId
-            // REMOVED orderBy to avoid Firestore index requirements for now. Sorting client-side.
-            const q = query(
-                collection(db, 'announcements'),
-                where('academyId', '==', academyId),
-                orderBy('createdAt', 'desc'),
-                limit(20)
-            );
-            const snapshot = await getDocs(q);
-            const data = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-
-            // Sort client-side
-            data.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
-
-            console.log("Fetched announcements:", data);
-            setAnnouncements(data);
-            setLoading(false);
-        } catch (error) {
-            console.error("Error fetching announcements:", error);
-            setLoading(false);
-        }
-    }, [academyId]);
 
     useEffect(() => {
-        const fetchUserData = async () => {
-            if (!auth.currentUser) return;
-            try {
-                const userDoc = await getDoc(doc(db, 'users', auth.currentUser.uid));
-                if (userDoc.exists()) {
-                    const userData = userDoc.data();
-                    const userAcademyId = userData.academyId || 'academy_default';
-                    setAcademyId(userAcademyId);
-
-                    // Update localStorage to be safe
-                    localStorage.setItem('academyId', userAcademyId);
-                }
-            } catch (error) {
-                console.error("Error fetching user data:", error);
-            }
-        };
-        fetchUserData();
+        fetchAnnouncements();
     }, []);
 
-    useEffect(() => {
-        if (academyId) {
-            fetchClasses();
-            fetchAnnouncements();
+    const fetchAnnouncements = async () => {
+        try {
+            const data = await getAnnouncements();
+            setAnnouncements(data);
+        } catch (error) {
+            console.error("Error fetching announcements:", error);
+        } finally {
+            setLoading(false);
         }
-    }, [academyId, fetchClasses, fetchAnnouncements]);
+    };
 
     const handleAddAnnouncement = async (e) => {
         e.preventDefault();
         if (!newAnnouncement.title.trim() || !newAnnouncement.content.trim()) return;
-        if (!academyId) {
-            alert('학원 정보를 불러오는 중입니다. 잠시 후 다시 시도해주세요.');
-            return;
-        }
 
         try {
-            const targetClassName = newAnnouncement.targetClassId === 'all'
-                ? '전체'
-                : classes.find(c => c.id === newAnnouncement.targetClassId)?.name || 'Unknown';
-
-            await addDoc(collection(db, 'announcements'), {
+            const announcementData = {
                 ...newAnnouncement,
-                targetClassName,
-                createdAt: new Date().toISOString(),
-                authorName: '선생님', // Assuming admin is always '선생님' for now
-                academyId // Add academyId
-            });
+                targetClassName: newAnnouncement.targetClassId === 'all' ? '전체' : '특정 반', // 클래스 기능 미구현으로 임시 처리
+                authorName: '선생님'
+            };
 
+            await addAnnouncement(announcementData);
             setNewAnnouncement({ title: '', content: '', targetClassId: 'all' });
             fetchAnnouncements();
             alert('공지사항이 등록되었습니다.');
@@ -110,10 +46,11 @@ export default function AnnouncementManagement() {
     const handleDelete = async (id) => {
         if (!window.confirm('정말 삭제하시겠습니까?')) return;
         try {
-            await deleteDoc(doc(db, 'announcements', id));
-            setAnnouncements(prev => prev.filter(a => a.id !== id));
+            await deleteAnnouncement(id);
+            fetchAnnouncements();
         } catch (error) {
             console.error("Error deleting announcement:", error);
+            alert('공지사항 삭제 실패');
         }
     };
 
@@ -152,9 +89,7 @@ export default function AnnouncementManagement() {
                                     className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-indigo-500 outline-none"
                                 >
                                     <option value="all">전체 학생</option>
-                                    {classes.map(cls => (
-                                        <option key={cls.id} value={cls.id}>{cls.name}</option>
-                                    ))}
+                                    {/* 클래스 목록은 추후 구현 */}
                                 </select>
                             </div>
                             <div>
@@ -188,25 +123,29 @@ export default function AnnouncementManagement() {
                         </div>
                     ) : (
                         announcements.map(announcement => (
-                            <div key={announcement.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow relative group">
+                            <div key={announcement.ID || announcement.id} className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-shadow relative group">
                                 <div className="flex justify-between items-start mb-2">
                                     <div>
-                                        <span className={`inline-block px-2 py-1 rounded text-xs font-bold mb-2 ${announcement.targetClassId === 'all' ? 'bg-indigo-100 text-indigo-700' : 'bg-green-100 text-green-700'}`}>
-                                            {announcement.targetClassName}
+                                        <span className={`inline-block px-2 py-1 rounded text-xs font-bold mb-2 ${announcement.TARGET_CLASS_ID === 'all' || announcement.target_class_id === 'all' ? 'bg-indigo-100 text-indigo-700' : 'bg-green-100 text-green-700'}`}>
+                                            {announcement.TARGET_CLASS_NAME || announcement.target_class_name}
                                         </span>
-                                        <h3 className="text-lg font-bold text-gray-800">{announcement.title}</h3>
+                                        <h3 className="text-lg font-bold text-gray-800">{announcement.TITLE || announcement.title}</h3>
                                     </div>
                                     <button
-                                        onClick={() => handleDelete(announcement.id)}
+                                        onClick={() => handleDelete(announcement.ID || announcement.id)}
                                         className="p-2 text-gray-400 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100"
                                     >
                                         <Trash2 className="w-5 h-5" />
                                     </button>
                                 </div>
-                                <p className="text-gray-600 whitespace-pre-wrap text-sm">{announcement.content}</p>
+                                <p className="text-gray-600 whitespace-pre-wrap text-sm">{announcement.CONTENT || announcement.content}</p>
                                 <div className="mt-4 text-xs text-gray-400 flex justify-between items-center">
-                                    <span>작성자: {announcement.authorName}</span>
-                                    <span>{new Date(announcement.createdAt).toLocaleDateString()}</span>
+                                    <span>작성자: {announcement.AUTHOR_NAME || announcement.author_name}</span>
+                                    <span>
+                                        {announcement.CREATED_AT || announcement.created_at
+                                            ? new Date(announcement.CREATED_AT || announcement.created_at).toLocaleDateString()
+                                            : '-'}
+                                    </span>
                                 </div>
                             </div>
                         ))

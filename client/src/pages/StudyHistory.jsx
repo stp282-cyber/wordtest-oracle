@@ -1,13 +1,12 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
-import { ArrowLeft, CheckCircle, DollarSign, Calendar, TrendingUp, Activity } from 'lucide-react';
-import { db } from '../firebase';
-import { collection, query, where, getDocs, orderBy, limit } from 'firebase/firestore';
+import { ArrowLeft, CheckCircle, DollarSign, Calendar, TrendingUp } from 'lucide-react';
+import { getStudyHistory } from '../api/client'; // API 클라이언트 사용
 
 export default function StudyHistory() {
     const [history, setHistory] = useState([]);
     const [dollarHistory, setDollarHistory] = useState([]);
-    const [activeTab, setActiveTab] = useState('tests'); // 'tests', 'dollars'
+    const [activeTab, setActiveTab] = useState('tests');
     const navigate = useNavigate();
     const location = useLocation();
     const targetUserId = location.state?.targetUserId;
@@ -16,62 +15,32 @@ export default function StudyHistory() {
     const fetchHistory = useCallback(async () => {
         const userId = targetUserId || localStorage.getItem('userId');
         try {
-            // Fetch Test Results
-            let rawHistory = [];
-            try {
-                const q = query(
-                    collection(db, 'test_results'),
-                    where('user_id', '==', userId),
-                    orderBy('date', 'desc'),
-                    limit(50)
-                );
-                const querySnapshot = await getDocs(q);
-                rawHistory = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            } catch (queryError) {
-                console.warn("Test results index query failed, falling back to client-side sorting:", queryError);
-                const fallbackQuery = query(
-                    collection(db, 'test_results'),
-                    where('user_id', '==', userId)
-                );
-                const fallbackSnapshot = await getDocs(fallbackQuery);
-                rawHistory = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                // Sort client-side
-                rawHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
-                // Limit client-side
-                rawHistory = rawHistory.slice(0, 50);
-            }
+            const data = await getStudyHistory(userId);
 
-            // Sort by date desc (ensure sorted even if query succeeded, though query does it)
-            // If fallback was used, it's already sorted. If query used, it's already sorted.
-            // But re-sorting doesn't hurt to be safe if we mix logic.
-            // Actually, let's trust the block above.
+            // Oracle DB 컬럼명은 대문자로 반환될 수 있음 (설정에 따라 다름)
+            // server.js에서 outFormat: oracledb.OUT_FORMAT_OBJECT 사용 시 대문자 키
 
-            const formattedHistory = rawHistory.map(record => {
+            const formattedTests = data.tests.map(record => {
                 let details = [];
                 try {
-                    details = typeof record.details === 'string' ? JSON.parse(record.details) : record.details;
+                    // CLOB 데이터는 문자열로 옴
+                    details = typeof record.DETAILS === 'string' ? JSON.parse(record.DETAILS) : record.DETAILS;
                 } catch (e) {
                     console.error("Failed to parse details JSON", e);
                 }
 
-                const total = details.length;
-                const correct = details.filter(d => d.correct).length;
-                const wrong = total - correct;
+                const total = record.TOTAL_QUESTIONS;
+                const correct = record.CORRECT_ANSWERS;
+                const wrong = record.WRONG_ANSWERS;
                 const percent = total > 0 ? Math.round((correct / total) * 100) : 0;
 
                 return {
-                    date: record.date,
-                    score: record.score,
+                    date: record.DATE_TAKEN,
+                    score: record.SCORE,
                     percent,
                     total,
                     correct,
                     wrong,
-                    newWordsScore: record.new_words_score,
-                    newWordsTotal: record.new_words_total,
-                    newWordsCorrect: record.new_words_correct,
-                    reviewWordsScore: record.review_words_score,
-                    reviewWordsTotal: record.review_words_total,
-                    reviewWordsCorrect: record.review_words_correct,
                     details: details.map(d => ({
                         questionNumber: d.word?.word_number || '?',
                         questionName: d.word?.english || '?',
@@ -82,31 +51,17 @@ export default function StudyHistory() {
                 };
             });
 
-            setHistory(formattedHistory);
+            setHistory(formattedTests);
 
-            // Fetch Dollar History
-            let rawDollarHistory = [];
-            try {
-                const dollarQ = query(
-                    collection(db, 'dollar_history'),
-                    where('user_id', '==', userId),
-                    orderBy('date', 'desc'),
-                    limit(50)
-                );
-                const dollarSnapshot = await getDocs(dollarQ);
-                rawDollarHistory = dollarSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            } catch (queryError) {
-                console.warn("Dollar history index query failed, falling back to client-side sorting:", queryError);
-                const fallbackQuery = query(
-                    collection(db, 'dollar_history'),
-                    where('user_id', '==', userId)
-                );
-                const fallbackSnapshot = await getDocs(fallbackQuery);
-                rawDollarHistory = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                rawDollarHistory.sort((a, b) => new Date(b.date) - new Date(a.date));
-                rawDollarHistory = rawDollarHistory.slice(0, 50);
-            }
-            setDollarHistory(rawDollarHistory);
+            const formattedDollars = data.dollars.map(item => ({
+                id: item.ID,
+                amount: item.AMOUNT,
+                reason: item.REASON,
+                type: item.TYPE,
+                date: item.DATE_EARNED
+            }));
+
+            setDollarHistory(formattedDollars);
 
         } catch (err) {
             console.error(err);

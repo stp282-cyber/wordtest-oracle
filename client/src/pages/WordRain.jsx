@@ -1,10 +1,9 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { ArrowLeft, Heart, Trophy, Zap, Bomb, RefreshCw, DollarSign } from 'lucide-react';
-import { db } from '../firebase';
-import { collection, query, where, getDocs } from 'firebase/firestore';
 import confetti from 'canvas-confetti';
 import { addDollars, getRewardSettings, getDailyGameEarnings } from '../utils/dollarUtils';
+import { getGameWords } from '../api/client';
 
 export default function WordRain() {
     const [loading, setLoading] = useState(true);
@@ -37,36 +36,18 @@ export default function WordRain() {
             const { studyStartIndex, studyEndIndex, bookName } = location.state || {};
 
             try {
-                let targetWords = [];
-
                 if (studyStartIndex && studyEndIndex && bookName) {
-                    // Optimized Range Query with Fallback
-                    try {
-                        const q = query(
-                            collection(db, 'words'),
-                            where('book_name', '==', bookName),
-                            where('word_number', '>=', parseInt(studyStartIndex)),
-                            where('word_number', '<', parseInt(studyEndIndex))
-                        );
-                        const querySnapshot = await getDocs(q);
-                        targetWords = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    } catch (queryError) {
-                        console.warn("Index query failed, falling back to client-side filtering:", queryError);
-                        const fallbackQuery = query(
-                            collection(db, 'words'),
-                            where('book_name', '==', bookName)
-                        );
-                        const fallbackSnapshot = await getDocs(fallbackQuery);
-                        const allBookWords = fallbackSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+                    const targetWords = await getGameWords(bookName, studyStartIndex, studyEndIndex);
 
-                        const start = parseInt(studyStartIndex);
-                        const end = parseInt(studyEndIndex);
-
-                        targetWords = allBookWords.filter(w => {
-                            const wn = parseInt(w.word_number);
-                            return wn >= start && wn < end;
-                        });
+                    if (targetWords.length === 0) {
+                        alert('게임할 단어가 없습니다.');
+                        navigate('/student');
+                        return;
                     }
+
+                    setWords(targetWords);
+                    setLoading(false);
+                    setGameState('playing');
                 } else {
                     // Fallback: Fetch random words or redirect
                     // For now, let's redirect to prevent errors
@@ -74,16 +55,6 @@ export default function WordRain() {
                     navigate('/student');
                     return;
                 }
-
-                if (targetWords.length === 0) {
-                    alert('게임할 단어가 없습니다.');
-                    navigate('/student');
-                    return;
-                }
-
-                setWords(targetWords);
-                setLoading(false);
-                setGameState('playing');
 
             } catch (err) {
                 console.error(err);
