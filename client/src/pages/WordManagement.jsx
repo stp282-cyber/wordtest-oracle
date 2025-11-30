@@ -1,8 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Upload, Trash2, Plus, BookOpen, Edit2, Save, X, AlertTriangle, Download } from 'lucide-react';
 import * as XLSX from 'xlsx';
-import { db } from '../firebase';
-import { collection, getDocs, addDoc, deleteDoc, doc, writeBatch, updateDoc, query, where, increment, setDoc, getDoc, serverTimestamp } from 'firebase/firestore';
+import { getWords } from '../api/client';
 
 export default function WordManagement() {
     const [words, setWords] = useState([]);
@@ -12,20 +11,8 @@ export default function WordManagement() {
 
     const fetchWords = useCallback(async () => {
         try {
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
-            // Filter words by academyId
-            const q = query(collection(db, 'words'), where('academyId', '==', academyId));
-            const querySnapshot = await getDocs(q);
-            const data = querySnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-            // Sort by book_name first, then word_number
-            data.sort((a, b) => {
-                const bookA = (a.book_name || '').toString();
-                const bookB = (b.book_name || '').toString();
-                if (bookA < bookB) return -1;
-                if (bookA > bookB) return 1;
-                return (a.word_number || 0) - (b.word_number || 0);
-            });
-            setWords(data);
+            const response = await getWords();
+            setWords(response.data);
         } catch (err) {
             console.error("Error fetching words:", err);
         }

@@ -25,61 +25,11 @@ import SuperAdminDashboard from './pages/SuperAdminDashboard';
 import AcademySettings from './pages/AcademySettings';
 import DataManagement from './pages/DataManagement';
 import Layout from './components/Layout';
-import { db } from './firebase';
-import { doc, getDoc } from 'firebase/firestore';
+// import { db } from './firebase';
+// import { doc, getDoc } from 'firebase/firestore';
 
 const PrivateRoute = ({ children, role }) => {
-  const token = localStorage.getItem('token');
-  const userRole = localStorage.getItem('role');
-  const userId = localStorage.getItem('userId');
-  const [isChecking, setIsChecking] = useState(true);
-  const [isSuspended, setIsSuspended] = useState(false);
-
-  useEffect(() => {
-    const checkStudentStatus = async () => {
-      // Only check status for students, not admins
-      if (userRole === 'student' && userId) {
-        try {
-          const userDoc = await getDoc(doc(db, 'users', userId));
-          if (userDoc.exists()) {
-            const userData = userDoc.data();
-            if (userData.status === 'suspended') {
-              setIsSuspended(true);
-              // Clear localStorage and redirect to login
-              localStorage.clear();
-            }
-          }
-        } catch (error) {
-          console.error('Error checking student status:', error);
-        }
-      }
-      setIsChecking(false);
-    };
-
-    checkStudentStatus();
-  }, [userRole, userId]);
-
-  if (!token) return <Navigate to="/login" />;
-
-  // If student is suspended, redirect to login
-  if (isSuspended) {
-    return <Navigate to="/login" />;
-  }
-
-  // Show loading state while checking status
-  if (isChecking && userRole === 'student') {
-    return <div className="flex items-center justify-center min-h-screen">
-      <div className="text-gray-600">로딩 중...</div>
-    </div>;
-  }
-
-  // Super admin can access everything, or at least admin routes
-  if (role === 'admin' && userRole === 'super_admin') {
-    return children;
-  }
-
-  if (role && userRole !== role) return <Navigate to="/" />;
-
+  // 임시: 모든 접근 허용 (로그인/권한 체크 로직은 나중에 API 기반으로 재구현 필요)
   return children;
 };
 
