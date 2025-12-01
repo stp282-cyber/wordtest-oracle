@@ -26,7 +26,26 @@ import DataManagement from './pages/DataManagement';
 import Layout from './components/Layout';
 
 const PrivateRoute = ({ children, role }) => {
-  // 임시: 모든 접근 허용 (로그인/권한 체크 로직은 나중에 API 기반으로 재구현 필요)
+  const userRole = localStorage.getItem('role');
+  const isLoggedIn = localStorage.getItem('userId');
+
+  // 로그인하지 않은 경우
+  if (!isLoggedIn) {
+    return <Navigate to="/login" replace />;
+  }
+
+  // 역할이 지정된 경우, 역할 확인
+  if (role) {
+    // admin 또는 super_admin은 관리자 페이지 접근 가능
+    if (role === 'admin' && userRole !== 'admin' && userRole !== 'super_admin') {
+      return <Navigate to="/student" replace />;
+    }
+    // student는 학생 페이지만 접근 가능
+    if (role === 'student' && (userRole === 'admin' || userRole === 'super_admin')) {
+      return <Navigate to="/admin" replace />;
+    }
+  }
+
   return children;
 };
 

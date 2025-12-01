@@ -18,18 +18,30 @@ export default function WordManagement() {
     });
     const [filterBookName, setFilterBookName] = useState('');
     const [filterUnitName, setFilterUnitName] = useState('');
+    const [page, setPage] = useState(1);
+    const [totalPages, setTotalPages] = useState(1);
+    const [totalItems, setTotalItems] = useState(0);
     const fileInputRef = useRef(null);
 
     useEffect(() => {
         fetchWords();
     }, []);
 
-    const fetchWords = async () => {
+    const fetchWords = async (currentPage = page) => {
         try {
-            const response = await getAllWords();
-            // API returns { data: [...], meta: {...} } or just [...] depending on implementation
-            // Safe check to handle both cases
-            setWords(Array.isArray(response) ? response : (response.data || []));
+            setLoading(true);
+            const response = await getAllWords(currentPage, 50, filterBookName, filterUnitName);
+
+            if (response.meta) {
+                setWords(response.data || []);
+                setTotalPages(response.meta.totalPages || 1);
+                setTotalItems(response.meta.total || 0);
+            } else {
+                // Fallback for array response
+                const data = Array.isArray(response) ? response : (response.data || []);
+                setWords(data);
+                setTotalItems(data.length);
+            }
         } catch (err) {
             console.error('단어 목록 조회 실패:', err);
         } finally {
@@ -48,7 +60,7 @@ export default function WordManagement() {
             setShowModal(false);
             setEditingWord(null);
             setFormData({ english: '', korean: '', level_group: 1, book_name: '', unit_name: '', word_order: '' });
-            fetchWords();
+            await fetchWords();
         } catch (err) {
             console.error('단어 저장 실패:', err);
             alert('단어 저장에 실패했습니다.');
@@ -145,12 +157,12 @@ export default function WordManagement() {
                 }
 
                 alert(`업로드 완료: 성공 ${successCount}건, 실패 ${failCount}건`);
-                fetchWords();
+                await fetchWords();
             } catch (err) {
                 console.error('Excel processing error:', err);
                 alert('엑셀 파일 처리 중 오류가 발생했습니다.');
-            } finally {
                 setLoading(false);
+            } finally {
                 if (fileInputRef.current) fileInputRef.current.value = '';
             }
         };
@@ -171,7 +183,7 @@ export default function WordManagement() {
                     <div className="flex items-center space-x-3">
                         <BookOpen className="w-8 h-8 text-indigo-600" />
                         <h1 className="text-3xl font-bold text-gray-800">단어 관리</h1>
-                        <span className="text-gray-500">({words.length}개)</span>
+                        <span className="text-gray-500">({totalItems}개)</span>
                     </div>
                     <div className="flex flex-wrap gap-2">
                         <button
@@ -246,11 +258,21 @@ export default function WordManagement() {
                             onClick={() => {
                                 setFilterBookName('');
                                 setFilterUnitName('');
-                                fetchWords();
+                                setPage(1);
+                                fetchWords(1);
                             }}
                             className="px-4 py-2 bg-gray-100 text-gray-700 rounded-lg hover:bg-gray-200"
                         >
                             필터 초기화
+                        </button>
+                        <button
+                            onClick={() => {
+                                setPage(1);
+                                fetchWords(1);
+                            }}
+                            className="px-4 py-2 bg-indigo-600 text-white rounded-lg hover:bg-indigo-700"
+                        >
+                            검색
                         </button>
                         {filterBookName && (
                             <button
@@ -259,7 +281,7 @@ export default function WordManagement() {
                                     try {
                                         await deleteWordsByBook(filterBookName);
                                         alert('삭제되었습니다.');
-                                        fetchWords();
+                                        fetchWords(1);
                                     } catch (err) {
                                         console.error('삭제 실패:', err);
                                         alert('삭제에 실패했습니다.');
@@ -316,6 +338,57 @@ export default function WordManagement() {
                             ))}
                         </tbody>
                     </table>
+                </div>
+
+                {/* Pagination */}
+                <div className="flex justify-center items-center space-x-2 mt-4">
+                    <button
+                        onClick={() => {
+                            const newPage = Math.max(1, page - 1);
+                            setPage(newPage);
+                            fetchWords(newPage);
+                        }}
+                        disabled={page === 1}
+                        className="px-3 py-1 rounded border disabled:opacity-50"
+                    >
+                        이전
+                    </button>
+                    {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
+                        let pageNum = page;
+                        if (totalPages <= 5) {
+                            pageNum = i + 1;
+                        } else if (page <= 3) {
+                            pageNum = i + 1;
+                        } else if (page >= totalPages - 2) {
+                            pageNum = totalPages - 4 + i;
+                        } else {
+                            pageNum = page - 2 + i;
+                        }
+
+                        return (
+                            <button
+                                key={i}
+                                onClick={() => {
+                                    setPage(pageNum);
+                                    fetchWords(pageNum);
+                                }}
+                                className={`px-3 py-1 rounded border ${page === pageNum ? 'bg-indigo-600 text-white' : 'bg-white'}`}
+                            >
+                                {pageNum}
+                            </button>
+                        );
+                    })}
+                    <button
+                        onClick={() => {
+                            const newPage = Math.min(totalPages, page + 1);
+                            setPage(newPage);
+                            fetchWords(newPage);
+                        }}
+                        disabled={page === totalPages}
+                        className="px-3 py-1 rounded border disabled:opacity-50"
+                    >
+                        다음
+                    </button>
                 </div>
 
                 {/* Add/Edit Modal */}
@@ -409,6 +482,6 @@ export default function WordManagement() {
                     </div>
                 )}
             </div>
-        </div>
+        </div >
     );
 }

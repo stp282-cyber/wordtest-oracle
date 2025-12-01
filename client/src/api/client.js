@@ -2,7 +2,7 @@ import axios from 'axios';
 import io from 'socket.io-client';
 
 // API 기본 설정
-const API_URL = import.meta.env.VITE_API_URL || 'http://localhost:3000/api';
+const API_URL = import.meta.env.VITE_API_URL || '/api';
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:3000';
 
 export const api = axios.create({
@@ -44,8 +44,11 @@ export const getStudentDashboard = async (userId) => {
 
 // ===== 단어 API =====
 
-export const getWords = async (page = 1, limit = 50) => {
-    const response = await api.get(`/words?page=${page}&limit=${limit}`);
+export const getWords = async (page = 1, limit = 50, book_name = '', unit_name = '') => {
+    let url = `/words?page=${page}&limit=${limit}`;
+    if (book_name) url += `&book_name=${encodeURIComponent(book_name)}`;
+    if (unit_name) url += `&unit_name=${encodeURIComponent(unit_name)}`;
+    const response = await api.get(url);
     return response.data;
 };
 
@@ -75,22 +78,27 @@ export const deleteStudent = async (id) => {
 };
 
 export const deleteWord = async (id) => {
-    const response = await api.delete(`/admin/words/${id}`);
+    const response = await api.delete(`/words/${id}`);
     return response.data;
 };
 
 export const addWord = async (wordData) => {
-    const response = await api.post('/admin/words', wordData);
+    const response = await api.post('/words', wordData);
     return response.data;
 };
 
 export const updateWord = async (id, wordData) => {
-    const response = await api.put(`/admin/words/${id}`, wordData);
+    const response = await api.put(`/words/${id}`, wordData);
     return response.data;
 };
 
 export const deleteWordsByBook = async (bookName) => {
     const response = await api.delete(`/words/batch?book_name=${encodeURIComponent(bookName)}`);
+    return response.data;
+};
+
+export const getBookInfo = async (bookName) => {
+    const response = await api.get(`/books/${encodeURIComponent(bookName)}/info`);
     return response.data;
 };
 

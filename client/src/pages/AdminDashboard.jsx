@@ -78,15 +78,13 @@ export default function AdminDashboard() {
                                 <div
                                     key={student.ID || student.id}
                                     onClick={() => fetchResults(student.ID || student.id)}
-                                    className={`w-full text-left p-3 rounded-lg transition-colors border cursor-pointer ${selectedStudent === (student.ID || student.id) ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white border-transparent hover:bg-gray-50'
-                                        }`}
+                                    className={`w-full text-left p-3 rounded-lg transition-colors border cursor-pointer ${selectedStudent === (student.ID || student.id) ? 'bg-indigo-50 text-indigo-700 border-indigo-200' : 'bg-white border-transparent hover:bg-gray-50'}`}
                                 >
                                     <div className="flex items-center justify-between">
                                         <div className="flex-1 min-w-0 mr-2">
                                             <div className="font-medium truncate flex items-center">
                                                 {student.USERNAME || student.username}
                                             </div>
-                                            <div className="text-xs text-gray-500 mt-0.5 truncate">{student.EMAIL || student.email}</div>
                                         </div>
                                         <div className="flex items-center gap-2 flex-shrink-0">
                                             <button
@@ -178,51 +176,53 @@ export default function AdminDashboard() {
             </div >
 
             {/* Student Detail Modal */}
-            {showDetailModal && detailStudent && (
-                <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
-                    <div className="bg-white rounded-2xl max-w-md w-full">
-                        <div className="p-6 border-b border-gray-200 flex items-center justify-between">
-                            <h2 className="text-xl font-bold text-gray-900">학생 정보</h2>
-                            <button
-                                onClick={() => setShowDetailModal(false)}
-                                className="text-gray-400 hover:text-gray-600"
-                            >
-                                <X className="w-6 h-6" />
-                            </button>
-                        </div>
-                        <div className="p-6 space-y-4">
-                            <div>
-                                <label className="text-sm text-gray-500">이름</label>
-                                <p className="font-medium text-gray-900">{detailStudent.USERNAME || detailStudent.username}</p>
+            {
+                showDetailModal && detailStudent && (
+                    <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50 p-4">
+                        <div className="bg-white rounded-2xl max-w-md w-full">
+                            <div className="p-6 border-b border-gray-200 flex items-center justify-between">
+                                <h2 className="text-xl font-bold text-gray-900">학생 정보</h2>
+                                <button
+                                    onClick={() => setShowDetailModal(false)}
+                                    className="text-gray-400 hover:text-gray-600"
+                                >
+                                    <X className="w-6 h-6" />
+                                </button>
                             </div>
-                            <div>
-                                <label className="text-sm text-gray-500">이메일</label>
-                                <p className="font-medium text-gray-900">{detailStudent.EMAIL || detailStudent.email}</p>
+                            <div className="p-6 space-y-4">
+                                <div>
+                                    <label className="text-sm text-gray-500">이름</label>
+                                    <p className="font-medium text-gray-900">{detailStudent.USERNAME || detailStudent.username}</p>
+                                </div>
+                                <div>
+                                    <label className="text-sm text-gray-500">이메일</label>
+                                    <p className="font-medium text-gray-900">{detailStudent.EMAIL || detailStudent.email}</p>
+                                </div>
+                                <div>
+                                    <label className="text-sm text-gray-500">ID</label>
+                                    <p className="font-medium text-gray-900">{detailStudent.ID || detailStudent.id}</p>
+                                </div>
+                                <div>
+                                    <label className="text-sm text-gray-500">가입일</label>
+                                    <p className="font-medium text-gray-900">
+                                        {detailStudent.CREATED_AT || detailStudent.created_at
+                                            ? new Date(detailStudent.CREATED_AT || detailStudent.created_at).toLocaleDateString()
+                                            : '-'}
+                                    </p>
+                                </div>
                             </div>
-                            <div>
-                                <label className="text-sm text-gray-500">ID</label>
-                                <p className="font-medium text-gray-900">{detailStudent.ID || detailStudent.id}</p>
+                            <div className="p-6 border-t border-gray-200 flex justify-end">
+                                <button
+                                    onClick={() => setShowDetailModal(false)}
+                                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
+                                >
+                                    닫기
+                                </button>
                             </div>
-                            <div>
-                                <label className="text-sm text-gray-500">가입일</label>
-                                <p className="font-medium text-gray-900">
-                                    {detailStudent.CREATED_AT || detailStudent.created_at
-                                        ? new Date(detailStudent.CREATED_AT || detailStudent.created_at).toLocaleDateString()
-                                        : '-'}
-                                </p>
-                            </div>
-                        </div>
-                        <div className="p-6 border-t border-gray-200 flex justify-end">
-                            <button
-                                onClick={() => setShowDetailModal(false)}
-                                className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300"
-                            >
-                                닫기
-                            </button>
                         </div>
                     </div>
-                </div>
-            )}
+                )
+            }
         </div >
     );
 }

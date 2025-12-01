@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { BookOpen, History, Trophy, Star, LogOut, User, Settings, Bell } from 'lucide-react';
+import { BookOpen, History, Trophy, Star, LogOut, User, Settings, Bell, Gamepad2, Brain, Zap, CloudRain } from 'lucide-react';
 import { api } from '../api/client';
 
 export default function StudentDashboard() {
@@ -75,6 +75,72 @@ export default function StudentDashboard() {
                     </div>
                 </section>
 
+                {/* Game Center */}
+                <section>
+                    <h2 className="text-xl font-bold text-gray-800 flex items-center space-x-2 mb-4">
+                        <Gamepad2 className="w-5 h-5 text-indigo-600" />
+                        <span>게임 센터</span>
+                    </h2>
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                        <GameCard
+                            title="카드 뒤집기"
+                            description="기억력을 테스트해보세요!"
+                            icon={<Brain className="w-6 h-6 text-white" />}
+                            color="bg-pink-500"
+                            onClick={() => {
+                                const settings = dashboardData?.settings || {};
+                                const bookName = settings.book_name || '기본';
+                                const currentProgress = settings.book_progress?.[bookName] || 0;
+                                const start = Math.max(1, currentProgress - 19);
+                                const end = Math.max(1, currentProgress);
+                                navigate('/student/game', { state: { bookName, studyStartIndex: start, studyEndIndex: end } });
+                            }}
+                        />
+                        <GameCard
+                            title="단어 스크램블"
+                            description="섞인 철자를 맞춰보세요!"
+                            icon={<Zap className="w-6 h-6 text-white" />}
+                            color="bg-yellow-500"
+                            onClick={() => {
+                                const settings = dashboardData?.settings || {};
+                                const bookName = settings.book_name || '기본';
+                                const currentProgress = settings.book_progress?.[bookName] || 0;
+                                const start = Math.max(1, currentProgress - 19);
+                                const end = Math.max(1, currentProgress);
+                                navigate('/student/scramble', { state: { bookName, studyStartIndex: start, studyEndIndex: end } });
+                            }}
+                        />
+                        <GameCard
+                            title="스피드 퀴즈"
+                            description="빠르게 정답을 맞춰보세요!"
+                            icon={<Trophy className="w-6 h-6 text-white" />}
+                            color="bg-blue-500"
+                            onClick={() => {
+                                const settings = dashboardData?.settings || {};
+                                const bookName = settings.book_name || '기본';
+                                const currentProgress = settings.book_progress?.[bookName] || 0;
+                                const start = Math.max(1, currentProgress - 19);
+                                const end = Math.max(1, currentProgress);
+                                navigate('/student/speed', { state: { bookName, studyStartIndex: start, studyEndIndex: end } });
+                            }}
+                        />
+                        <GameCard
+                            title="단어 비"
+                            description="떨어지는 단어를 잡으세요!"
+                            icon={<CloudRain className="w-6 h-6 text-white" />}
+                            color="bg-indigo-500"
+                            onClick={() => {
+                                const settings = dashboardData?.settings || {};
+                                const bookName = settings.book_name || '기본';
+                                const currentProgress = settings.book_progress?.[bookName] || 0;
+                                const start = Math.max(1, currentProgress - 19);
+                                const end = Math.max(1, currentProgress);
+                                navigate('/student/rain', { state: { bookName, studyStartIndex: start, studyEndIndex: end } });
+                            }}
+                        />
+                    </div>
+                </section>
+
                 {/* Quick Stats */}
                 <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                     <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 flex items-center space-x-4">
@@ -134,5 +200,23 @@ export default function StudentDashboard() {
 function PlayCircle(props) {
     return (
         <svg {...props} xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="12" cy="12" r="10" /><polygon points="10 8 16 12 10 16 10 8" /></svg>
+    );
+}
+
+function GameCard({ title, description, icon, color, onClick }) {
+    return (
+        <button
+            onClick={onClick}
+            className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100 hover:shadow-md transition-all text-left group relative overflow-hidden"
+        >
+            <div className={`absolute top-0 right-0 p-3 opacity-10 group-hover:opacity-20 transition-opacity`}>
+                <div className={`w-16 h-16 rounded-full ${color}`}></div>
+            </div>
+            <div className={`${color} w-12 h-12 rounded-xl flex items-center justify-center mb-4 shadow-lg group-hover:scale-110 transition-transform`}>
+                {icon}
+            </div>
+            <h3 className="font-bold text-gray-800 text-lg mb-1">{title}</h3>
+            <p className="text-sm text-gray-500">{description}</p>
+        </button>
     );
 }

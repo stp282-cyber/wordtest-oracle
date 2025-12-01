@@ -45,7 +45,8 @@ export default function LessonManagement() {
             setClasses(classData);
 
             // 3. 단어장 목록 가져오기
-            const wordData = await getAllWords();
+            const wordResponse = await getAllWords();
+            const wordData = Array.isArray(wordResponse) ? wordResponse : (wordResponse.data || []);
             const uniqueBooks = [...new Set(wordData.map(w => w.BOOK_NAME || w.book_name).filter(Boolean))];
             setBooks(uniqueBooks);
 
@@ -128,18 +129,13 @@ export default function LessonManagement() {
 
     const openStudentDetail = (student) => {
         const studentCopy = JSON.parse(JSON.stringify(student)); // Deep copy for editing
-
-        // Convert curriculum_queues object to array if needed (though we store as object usually)
-        // Here we ensure it's in a format easy to edit.
-        // If it's an object with numeric keys, we might want to keep it that way or convert to array for mapping.
-        // Let's assume it's an object where keys are indices.
-
         setEditedStudent(studentCopy);
         setViewMode('detail');
     };
 
     const handleSaveStudent = async () => {
         if (!editedStudent) return;
+
         try {
             // Prepare data for API
             const curriculumData = {
@@ -161,7 +157,7 @@ export default function LessonManagement() {
             setViewMode('list');
         } catch (err) {
             console.error("Error saving student:", err);
-            alert('저장 중 오류가 발생했습니다.');
+            alert(`저장 중 오류가 발생했습니다: ${err.message}`);
         }
     };
 

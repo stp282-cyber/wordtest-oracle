@@ -1,3 +1,12 @@
+import React, { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { Trophy, DollarSign, BookOpen, RotateCcw, Check } from 'lucide-react';
+import confetti from 'canvas-confetti';
+import { getStudyWords, getUserSettings, updateUserSettings, addReward, getRewardSettings, getDailyGameEarnings, saveTestResult, getBookInfo } from '../api/client';
+
+const isSentence = (text) => {
+    return text.trim().includes(' ');
+};
 
 const shuffleArray = (array) => {
     const shuffled = [...array];
@@ -53,13 +62,13 @@ export default function TestInterface() {
 
             try {
                 // 1. Get User Settings
-                const userDoc = await getDoc(doc(db, 'users', userId));
-                if (!userDoc.exists()) {
+                const settings = await getUserSettings(userId);
+                if (!settings) {
                     alert('사용자 설정을 찾을 수 없습니다.');
                     navigate('/student');
                     return;
                 }
-                const settings = userDoc.data();
+
                 const bookName = location.state?.bookName || settings.book_name || '기본';
                 setCurrentBookName(bookName);
 
@@ -97,110 +106,45 @@ export default function TestInterface() {
                         wordsPerSession = settings.words_per_session || 10;
                     }
 
-                    endWordNumber = startWordNumber + wordsPerSession;
+                    endWordNumber = startWordNumber + wordsPerSession - 1; // Inclusive range
                     console.log('Using calculated range (Today):', startWordNumber, endWordNumber);
                 }
 
                 // Review Range
-                const currentSessionLength = endWordNumber - startWordNumber;
+                const currentSessionLength = endWordNumber - startWordNumber + 1;
                 const reviewStartWordNumber = Math.max(1, startWordNumber - (currentSessionLength * 2));
-                const reviewEndWordNumber = startWordNumber;
+                const reviewEndWordNumber = startWordNumber - 1;
 
-                // 3. Fetch Words (Optimized: Split queries)
+                // 3. Fetch Words
 
-                // Fetch New Words
                 // Fetch New Words
                 let newWordsData = [];
                 try {
-                    const newWordsQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName),
-                        where('word_number', '>=', startWordNumber),
-                        where('word_number', '<', endWordNumber)
-                    );
-                    const newWordsSnap = await getDocs(newWordsQuery);
-                    newWordsData = newWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-                        .sort((a, b) => a.word_number - b.word_number);
-                } catch (queryError) {
-                    console.warn("New words index query failed, falling back to client-side filtering:", queryError);
-                    const fallbackQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName)
-                    );
-                    const fallbackSnap = await getDocs(fallbackQuery);
-                    const allBookWords = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    newWordsData = allBookWords
-                        .filter(w => {
-                            const wn = parseInt(w.word_number);
-                            return wn >= startWordNumber && wn < endWordNumber;
-                        })
-                        .sort((a, b) => a.word_number - b.word_number);
+                    newWordsData = await getStudyWords(bookName, startWordNumber, endWordNumber);
+                } catch (err) {
+                    console.error("Error fetching new words:", err);
                 }
 
                 // Fetch Review Words
                 let reviewWordsData = [];
-                try {
-                    const reviewWordsQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName),
-                        where('word_number', '>=', reviewStartWordNumber),
-                        where('word_number', '<', reviewEndWordNumber)
-                    );
-                    const reviewWordsSnap = await getDocs(reviewWordsQuery);
-                    reviewWordsData = reviewWordsSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }))
-                        .sort((a, b) => a.word_number - b.word_number);
-                } catch (queryError) {
-                    console.warn("Review words index query failed, falling back to client-side filtering:", queryError);
-                    // Reuse the fallback query if possible, but for simplicity re-fetch or use a separate fallback
-                    // Since we might have already fetched all words in the first catch block, we could optimize, 
-                    // but to keep logic simple and robust (in case only one fails), we'll query again or just query once if we could share state.
-                    // For safety and simplicity in this patch, I'll just run the fallback query again.
-                    const fallbackQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName)
-                    );
-                    const fallbackSnap = await getDocs(fallbackQuery);
-                    const allBookWords = fallbackSnap.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-                    reviewWordsData = allBookWords
-                        .filter(w => {
-                            const wn = parseInt(w.word_number);
-                            return wn >= reviewStartWordNumber && wn < reviewEndWordNumber;
-                        })
-                        .sort((a, b) => a.word_number - b.word_number);
-                }
-
-                // Fetch Max Word Number (Efficiently)
-                let maxNum = 0;
-                try {
-                    const lastWordQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName),
-                        orderBy('word_number', 'desc'),
-                        limit(1)
-                    );
-                    const lastWordSnap = await getDocs(lastWordQuery);
-                    if (!lastWordSnap.empty) {
-                        maxNum = lastWordSnap.docs[0].data().word_number;
-                    }
-                } catch (queryError) {
-                    console.warn("Max word index query failed, falling back to client-side calculation:", queryError);
-                    const fallbackQuery = query(
-                        collection(db, 'words'),
-                        where('book_name', '==', bookName)
-                    );
-                    const fallbackSnap = await getDocs(fallbackQuery);
-                    if (!fallbackSnap.empty) {
-                        const allWords = fallbackSnap.docs.map(doc => doc.data());
-                        // Find max word_number
-                        maxNum = allWords.reduce((max, word) => {
-                            const num = parseInt(word.word_number || 0);
-                            return num > max ? num : max;
-                        }, 0);
+                if (reviewEndWordNumber >= reviewStartWordNumber) {
+                    try {
+                        reviewWordsData = await getStudyWords(bookName, reviewStartWordNumber, reviewEndWordNumber);
+                    } catch (err) {
+                        console.error("Error fetching review words:", err);
                     }
                 }
-                setMaxWordNumber(maxNum);
 
-                // Combine for empty check (if needed)
+                // Fetch Max Word Number
+                try {
+                    const bookInfo = await getBookInfo(bookName);
+                    setMaxWordNumber(bookInfo.total);
+                } catch (err) {
+                    console.error("Error fetching book info:", err);
+                    setMaxWordNumber(99999); // Fallback
+                }
+
+
                 const allWordsCount = newWordsData.length + reviewWordsData.length;
 
                 if (newWordsData.length === 0 && allWordsCount === 0) {
@@ -433,151 +377,128 @@ export default function TestInterface() {
 
         const score = totalWords > 0 ? Math.round((correctCount / totalWords) * 100) : 0;
 
-        // Calculate separate scores
-        const newWordIds = new Set(newWords.map(w => w.id));
-        const reviewWordIds = new Set(reviewWords.map(w => w.id));
-
-        let newCorrect = 0;
-        let newTotal = 0;
-        let reviewCorrect = 0;
-        let reviewTotal = 0;
-
-        allAnswersValues.forEach(ans => {
-            if (newWordIds.has(ans.word.id)) {
-                newTotal++;
-                if (ans.correct) newCorrect++;
-            } else if (reviewWordIds.has(ans.word.id)) {
-                reviewTotal++;
-                if (ans.correct) reviewCorrect++;
-            }
-        });
-
-        const newWordsScore = newTotal > 0 ? Math.round((newCorrect / newTotal) * 100) : 0;
-        const reviewWordsScore = reviewTotal > 0 ? Math.round((reviewCorrect / reviewTotal) * 100) : 0;
-
         const userId = localStorage.getItem('userId');
         let totalEarned = 0;
 
         try {
-            // Save to Daily Summary (instead of test_results)
-            const today = new Date().toISOString().split('T')[0];
-            const academyId = localStorage.getItem('academyId') || 'academy_default';
+            // Fetch latest user settings
+            const userData = await getUserSettings(userId);
+            const rewardSettings = await getRewardSettings();
 
-            if (userSnap.exists()) {
-                const userData = userSnap.data();
+            // 1. Daily Completion Reward
+            if (location.state?.scheduledDate) {
+                const scheduledDate = new Date(location.state.scheduledDate);
+                const today = new Date();
 
-                // 1. Daily Completion Reward
-                if (location.state?.scheduledDate) {
-                    const scheduledDate = new Date(location.state.scheduledDate);
-                    const today = new Date();
+                // Check if scheduledDate is TODAY
+                const isToday = scheduledDate.toDateString() === today.toDateString();
+                const dayOfWeek = scheduledDate.getDay(); // 0 (Sun) - 6 (Sat)
 
-                    // Check if scheduledDate is TODAY
-                    const isToday = scheduledDate.toDateString() === today.toDateString();
+                // Check if scheduledDate is a study day
+                const studyDays = (userData.study_days || '1,2,3,4,5').split(',').map(Number);
+                const isStudyDay = studyDays.includes(dayOfWeek);
 
-                    const dayOfWeek = scheduledDate.getDay(); // 0 (Sun) - 6 (Sat)
+                // Check if already received reward TODAY
+                const earnings = await getDailyGameEarnings(userId);
+                const alreadyReceived = earnings.some(e => e.reason === '매일 학습 완료');
 
-                    // Check if scheduledDate is a study day
-                    const studyDays = (userData.study_days || '1,2,3,4,5').split(',').map(Number);
-                    const isStudyDay = studyDays.includes(dayOfWeek);
-
-                    // Check if already received reward TODAY
-                    const alreadyReceived = await hasReceivedDailyReward(userId);
-
-                    // Only give reward if:
-                    // 1. It is Today's scheduled learning (not future, not past)
-                    // 2. It is a valid study day
-                    // 3. Has not received reward yet today
-                    if (isToday && isStudyDay && !alreadyReceived) {
-                        await addDollars(userId, rewardSettings.daily_completion_reward, '매일 학습 완료');
-                        totalEarned += rewardSettings.daily_completion_reward;
-                    }
+                if (isToday && isStudyDay && !alreadyReceived) {
+                    await addReward(userId, rewardSettings.daily_completion_reward, '매일 학습 완료', 'study');
+                    totalEarned += rewardSettings.daily_completion_reward;
                 }
-
-                const currentBookProgress = userData.book_progress || {};
-
-                // Get current progress for this book
-                const currentProgress = currentBookProgress[currentBookName] || 0;
-
-                // Only update progress if this range continues from current progress
-                // This prevents skipping ahead
-                let newProgress = currentProgress;
-                if (rangeStart === currentProgress + 1 || currentProgress === 0) {
-                    // Sequential learning: update to rangeEnd
-                    newProgress = rangeEnd;
-                } else if (rangeStart <= currentProgress + 1) {
-                    // Reviewing or continuing: take the max
-                    newProgress = Math.max(currentProgress, rangeEnd);
-                }
-                // If rangeStart > currentProgress + 1, don't update (skipping ahead)
-
-                currentBookProgress[currentBookName] = newProgress;
-
-                const updates = {
-                    book_progress: currentBookProgress
-                };
-
-                // Legacy compatibility
-                if (currentBookName === userData.book_name) {
-                    updates.current_word_index = newProgress;
-                }
-
-                // Auto-Sequencing: Check if book is finished
-                if (newProgress >= maxWordNumber && maxWordNumber > 0) {
-                    const activeBooks = userData.active_books || [userData.book_name];
-                    const nextBooks = userData.next_books || [];
-
-                    // 2. Curriculum Completion Reward
-                    await addDollars(userId, rewardSettings.curriculum_completion_reward, `'${currentBookName}' 완독`);
-                    totalEarned += rewardSettings.curriculum_completion_reward;
-
-                    // If this book is in active_books, remove it
-                    if (activeBooks.includes(currentBookName)) {
-                        const newActiveBooks = activeBooks.filter(b => b !== currentBookName);
-
-                        // If there are books in queue, add the first one
-                        if (nextBooks.length > 0) {
-                            const nextBook = nextBooks[0];
-                            newActiveBooks.push(nextBook);
-                            updates.next_books = nextBooks.slice(1);
-                            alert(`'${currentBookName}' 단어장을 완료했습니다! 다음 단어장 '${nextBook}'이(가) 시작됩니다.`);
-                        } else {
-                            alert(`'${currentBookName}' 단어장을 완료했습니다!`);
-                        }
-
-                        updates.active_books = newActiveBooks;
-                        // Update legacy book_name to the first active book
-                        if (newActiveBooks.length > 0) {
-                            updates.book_name = newActiveBooks[0];
-                        }
-                    }
-                }
-
-                await updateDoc(userRef, updates);
             }
+
+            const currentBookProgress = userData.book_progress || {};
+
+            // Get current progress for this book
+            const currentProgress = currentBookProgress[currentBookName] || 0;
+
+            // Only update progress if this range continues from current progress
+            let newProgress = currentProgress;
+            if (rangeStart === currentProgress + 1 || currentProgress === 0) {
+                // Sequential learning: update to rangeEnd
+                newProgress = rangeEnd;
+            } else if (rangeStart <= currentProgress + 1) {
+                // Reviewing or continuing: take the max
+                newProgress = Math.max(currentProgress, rangeEnd);
+            }
+
+            currentBookProgress[currentBookName] = newProgress;
+
+            const updates = {
+                book_progress: currentBookProgress
+            };
+
+            // Legacy compatibility
+            if (currentBookName === userData.book_name) {
+                updates.current_word_index = newProgress;
+            }
+
+            // Auto-Sequencing: Check if book is finished
+            if (newProgress >= maxWordNumber && maxWordNumber > 0) {
+                const activeBooks = userData.active_books || [userData.book_name];
+                const nextBooks = userData.next_books || [];
+
+                // 2. Curriculum Completion Reward
+                await addReward(userId, rewardSettings.curriculum_completion_reward, `'${currentBookName}' 완독`, 'achievement');
+                totalEarned += rewardSettings.curriculum_completion_reward;
+
+                // If this book is in active_books, remove it
+                if (activeBooks.includes(currentBookName)) {
+                    const newActiveBooks = activeBooks.filter(b => b !== currentBookName);
+
+                    // If there are books in queue, add the first one
+                    if (nextBooks.length > 0) {
+                        const nextBook = nextBooks[0];
+                        newActiveBooks.push(nextBook);
+                        updates.next_books = nextBooks.slice(1);
+                        alert(`'${currentBookName}' 단어장을 완료했습니다! 다음 단어장 '${nextBook}'이(가) 시작됩니다.`);
+                    } else {
+                        alert(`'${currentBookName}' 단어장을 완료했습니다!`);
+                    }
+                    updates.active_books = newActiveBooks;
+                    if (newActiveBooks.length > 0) {
+                        updates.book_name = newActiveBooks[0];
+                    }
+                }
+            }
+
+            await updateUserSettings(userId, updates);
+
+            // Save Test Result History
+            await saveTestResult({
+                userId,
+                score,
+                totalQuestions: totalWords,
+                correctAnswers: correctCount,
+                wrongAnswers: totalWords - correctCount,
+                details: finalAllAnswers,
+                bookName: currentBookName,
+                testType: testMode
+            });
 
             setEarnedDollars(totalEarned);
             setAllTestsComplete(true);
-            triggerConfetti(); // Celebration!
+
+            // Trigger Confetti
+            const duration = 3000;
+            const animationEnd = Date.now() + duration;
+            const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
+            const randomInRange = (min, max) => Math.random() * (max - min) + min;
+
+            const interval = setInterval(function () {
+                const timeLeft = animationEnd - Date.now();
+                if (timeLeft <= 0) return clearInterval(interval);
+                const particleCount = 50 * (timeLeft / duration);
+                confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
+                confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
+            }, 250);
+
         } catch (err) {
             console.error("Error submitting results:", err);
             alert("결과 저장 중 오류가 발생했습니다.");
             isSubmitting.current = false;
         }
-    };
-
-    const triggerConfetti = () => {
-        const duration = 3000;
-        const animationEnd = Date.now() + duration;
-        const defaults = { startVelocity: 30, spread: 360, ticks: 60, zIndex: 0 };
-        const randomInRange = (min, max) => Math.random() * (max - min) + min;
-
-        const interval = setInterval(function () {
-            const timeLeft = animationEnd - Date.now();
-            if (timeLeft <= 0) return clearInterval(interval);
-            const particleCount = 50 * (timeLeft / duration);
-            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.1, 0.3), y: Math.random() - 0.2 } });
-            confetti({ ...defaults, particleCount, origin: { x: randomInRange(0.7, 0.9), y: Math.random() - 0.2 } });
-        }, 250);
     };
 
     if (loading) return <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-indigo-900 to-purple-900 text-white">시험지 생성 중...</div>;

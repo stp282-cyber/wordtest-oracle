@@ -6,6 +6,11 @@ const bcrypt = require('bcrypt');
 require('dotenv').config();
 const { getConnection } = require('./db/dbConfig');
 
+// OracleDB Configuration
+oracledb.outFormat = oracledb.OUT_FORMAT_OBJECT;
+oracledb.autoCommit = true;
+oracledb.fetchAsString = [oracledb.CLOB]; // Fetch CLOBs as strings
+
 const app = express();
 const server = http.createServer(app);
 const io = new Server(server, {
@@ -97,10 +102,8 @@ app.get('/api/words', async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
-        const countResult = await connection.execute(`SELECT COUNT(*) AS total FROM words`);
-        const total = countResult.rows[0][0];
-
         let query = `SELECT * FROM words`;
+        let countQuery = `SELECT COUNT(*) AS total FROM words`;
         const params = {};
         const filters = [];
 
@@ -114,8 +117,14 @@ app.get('/api/words', async (req, res) => {
         }
 
         if (filters.length > 0) {
-            query += ` WHERE ` + filters.join(' AND ');
+            const filterClause = ` WHERE ` + filters.join(' AND ');
+            query += filterClause;
+            countQuery += filterClause;
         }
+
+        // Count total matching records
+        const countResult = await connection.execute(countQuery, params);
+        const total = countResult.rows[0][0];
 
         query += ` ORDER BY book_name ASC, unit_name ASC, word_order ASC, id ASC OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY`;
         params.offset = offset;
@@ -133,6 +142,26 @@ app.get('/api/words', async (req, res) => {
         });
     } catch (err) {
         console.error('단어 조회 실패:', err);
+        res.status(500).json({ error: '데이터베이스 오류' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// 책 정보 조회 (총 단어 수)
+app.get('/api/books/:bookName/info', async (req, res) => {
+    const { bookName } = req.params;
+    let connection;
+    try {
+        connection = await getConnection();
+        const result = await connection.execute(
+            `SELECT COUNT(*) AS total FROM words WHERE book_name = :bookName`,
+            { bookName }
+        );
+        const total = result.rows[0][0];
+        res.json({ total });
+    } catch (err) {
+        console.error('책 정보 조회 실패:', err);
         res.status(500).json({ error: '데이터베이스 오류' });
     } finally {
         if (connection) await connection.close();
@@ -351,11 +380,31 @@ app.get('/api/admin/students', async (req, res) => {
     try {
         connection = await getConnection();
         const result = await connection.execute(
-            `SELECT id, username, email, role, created_at FROM users WHERE role = 'student' ORDER BY created_at DESC`,
+            `SELECT id, username, email, role, curriculum_data, created_at FROM users WHERE role = 'student' ORDER BY created_at DESC`,
             {},
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
-        res.json(result.rows);
+
+        // Parse curriculum_data CLOB for each student
+        const students = result.rows.map(student => {
+            if (student.CURRICULUM_DATA) {
+                try {
+                    student.curriculum_data = JSON.parse(student.CURRICULUM_DATA);
+                } catch (e) {
+                    console.error('JSON parsing error for student', student.ID || student.id, ':', e);
+                    student.curriculum_data = {};
+                }
+            } else {
+                student.curriculum_data = {};
+            }
+            // Use username as name if name doesn't exist
+            if (!student.NAME && !student.name) {
+                student.name = student.USERNAME || student.username;
+            }
+            return student;
+        });
+
+        res.json(students);
     } catch (err) {
         console.error('학생 목록 조회 오류:', err);
         res.status(500).json({ error: '데이터베이스 오류' });
@@ -369,10 +418,14 @@ app.post('/api/admin/students', async (req, res) => {
     let connection;
     try {
         connection = await getConnection();
+
+        // Hash password with bcrypt
+        const hashedPassword = await bcrypt.hash(password || '1234', 10);
+
         await connection.execute(
             `INSERT INTO users (id, username, email, password, role)
              VALUES (:id, :username, :email, :password, 'student')`,
-            { id, username, email, password: password || '1234' },
+            { id, username, email, password: hashedPassword },
             { autoCommit: true }
         );
         res.json({ success: true });
@@ -630,7 +683,7 @@ app.get('/api/admin/students/:id', async (req, res) => {
     try {
         connection = await getConnection();
         const result = await connection.execute(
-            `SELECT id, username, name, email, role, class_id, curriculum_data, created_at FROM users WHERE id = :id`,
+            `SELECT id, username, email, role, curriculum_data, created_at FROM users WHERE id = :id`,
             { id },
             { outFormat: oracledb.OUT_FORMAT_OBJECT }
         );
@@ -670,6 +723,7 @@ app.get('/api/admin/students/:id', async (req, res) => {
 app.put('/api/admin/students/:id/curriculum', async (req, res) => {
     const { id } = req.params;
     const { class_id, curriculum_data } = req.body;
+
     let connection;
     try {
         connection = await getConnection();
@@ -686,6 +740,7 @@ app.put('/api/admin/students/:id/curriculum', async (req, res) => {
     } catch (err) {
         console.error('커리큘럼 업데이트 오류:', err);
         res.status(500).json({ error: '업데이트 실패' });
+    } finally {
         if (connection) await connection.close();
     }
 });
@@ -1452,18 +1507,395 @@ app.put('/api/chats/:chatId/read', async (req, res) => {
     }
 });
 
+// ===== User Settings =====
+
+// Get User Settings
+app.get('/api/users/:userId/settings', async (req, res) => {
+    const { userId } = req.params;
+    let connection;
+    try {
+        connection = await getConnection();
+        const result = await connection.execute(
+            `SELECT settings FROM user_settings WHERE user_id = :userId`,
+            [userId]
+        );
+
+        if (result.rows.length > 0) {
+            const settingsClob = result.rows[0][0];
+            let settingsData = settingsClob;
+            if (settingsClob && typeof settingsClob.getData === 'function') {
+                settingsData = await settingsClob.getData();
+            }
+            res.json(JSON.parse(settingsData));
+        } else {
+            res.json({});
+        }
+    } catch (err) {
+        console.error('Error fetching user settings:', err);
+        res.status(500).json({ error: 'Failed to fetch settings' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// Update User Settings
+app.put('/api/users/:userId/settings', async (req, res) => {
+    const { userId } = req.params;
+    const settings = req.body;
+    let connection;
+    try {
+        connection = await getConnection();
+
+        const check = await connection.execute(
+            `SELECT 1 FROM user_settings WHERE user_id = :userId`,
+            [userId]
+        );
+
+        if (check.rows.length > 0) {
+            await connection.execute(
+                `UPDATE user_settings SET settings = :settings, updated_at = CURRENT_TIMESTAMP WHERE user_id = :userId`,
+                { settings: JSON.stringify(settings), userId },
+                { autoCommit: true }
+            );
+        } else {
+            await connection.execute(
+                `INSERT INTO user_settings (user_id, settings) VALUES (:userId, :settings)`,
+                { userId, settings: JSON.stringify(settings) },
+                { autoCommit: true }
+            );
+        }
+        res.json({ success: true });
+    } catch (err) {
+        console.error('Error updating user settings:', err);
+        res.status(500).json({ error: 'Failed to update settings' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// ===== Study Words =====
+
+// Get Study Words (Range based)
+app.get('/api/study/words', async (req, res) => {
+    const { bookName, start, end } = req.query;
+    let connection;
+    try {
+        connection = await getConnection();
+
+        const startIndex = parseInt(start) || 0;
+        const endIndex = parseInt(end) || 0;
+        const limit = endIndex - startIndex + 1;
+
+        if (limit <= 0) {
+            return res.json([]);
+        }
+
+        const query = `
+            SELECT * FROM words 
+            WHERE book_name = :bookName 
+            ORDER BY unit_name ASC, word_order ASC, id ASC 
+            OFFSET :offset ROWS FETCH NEXT :limit ROWS ONLY
+        `;
+
+        const result = await connection.execute(
+            query,
+            { bookName, offset: startIndex, limit },
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+
+        res.json(result.rows);
+    } catch (err) {
+        console.error('Error fetching study words:', err);
+        res.status(500).json({ error: 'Failed to fetch study words' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// ===== Student Dashboard & Test Results =====
+
+// Get Student Dashboard Data
+app.get('/api/dashboard/student/:userId', async (req, res) => {
+    const { userId } = req.params;
+    let connection;
+    try {
+        connection = await getConnection();
+
+        // Get recent test history
+        const historyResult = await connection.execute(
+            `SELECT * FROM test_results WHERE user_id = :userId ORDER BY date_taken DESC FETCH FIRST 10 ROWS ONLY`,
+            [userId],
+            { outFormat: oracledb.OUT_FORMAT_OBJECT }
+        );
+
+        // Get user settings/progress (optional, but good for dashboard)
+        const settingsResult = await connection.execute(
+            `SELECT settings FROM user_settings WHERE user_id = :userId`,
+            [userId]
+        );
+
+        let settings = {};
+        if (settingsResult.rows.length > 0) {
+            const settingsClob = settingsResult.rows[0][0];
+            let settingsData = settingsClob;
+            if (settingsClob && typeof settingsClob.getData === 'function') {
+                settingsData = await settingsClob.getData();
+            }
+            settings = JSON.parse(settingsData);
+        }
+
+        res.json({
+            history: historyResult.rows,
+            settings: settings
+        });
+    } catch (err) {
+        console.error('Error fetching student dashboard:', err);
+        res.status(500).json({ error: 'Failed to fetch dashboard data' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
+// Save Test Result
+app.post('/api/test-results', async (req, res) => {
+    const { userId, score, totalQuestions, correctAnswers, wrongAnswers, details, bookName, testType } = req.body;
+    const id = `test_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+
+    let connection;
+    try {
+        connection = await getConnection();
+        await connection.execute(
+            `INSERT INTO test_results (id, user_id, score, total_questions, correct_answers, wrong_answers, details, date_taken)
+             VALUES (:id, :userId, :score, :totalQuestions, :correctAnswers, :wrongAnswers, :details, CURRENT_TIMESTAMP)`,
+            {
+                id,
+                userId,
+                score,
+                totalQuestions,
+                correctAnswers,
+                wrongAnswers,
+                details: JSON.stringify(details)
+            },
+            { autoCommit: true }
+        );
+        res.json({ success: true, id });
+    } catch (err) {
+        console.error('Error saving test result:', err);
+        res.status(500).json({ error: 'Failed to save test result' });
+    } finally {
+        if (connection) await connection.close();
+    }
+});
+
 // ===== Socket.io =====
+
+// ===== Socket.io (Multiplayer Games) =====
+
+const rooms = {}; // Room state storage
 
 io.on('connection', (socket) => {
     console.log('새로운 사용자 접속:', socket.id);
 
     socket.on('disconnect', () => {
         console.log('사용자 접속 해제:', socket.id);
+        // Handle disconnection cleanup (leave rooms)
+        for (const roomId in rooms) {
+            const room = rooms[roomId];
+            const playerIndex = room.players.findIndex(p => p.id === socket.id);
+            if (playerIndex !== -1) {
+                room.players.splice(playerIndex, 1);
+                io.to(roomId).emit('player_left', socket.id);
+
+                // If room is empty, delete it
+                if (room.players.length === 0) {
+                    delete rooms[roomId];
+                } else if (room.host === socket.id) {
+                    // Assign new host
+                    room.host = room.players[0].id;
+                    io.to(roomId).emit('new_host', room.host);
+                }
+            }
+        }
     });
 
-    socket.on('join_room', (roomId) => {
+    socket.on('join_room', ({ roomId, username, gameType }) => {
         socket.join(roomId);
-        console.log(`사용자 ${socket.id}가 방 ${roomId}에 입장했습니다.`);
+
+        if (!rooms[roomId]) {
+            rooms[roomId] = {
+                id: roomId,
+                gameType, // 'battle' or 'survival'
+                players: [],
+                host: socket.id,
+                status: 'waiting', // waiting, playing, finished
+                words: [],
+                currentWordIndex: 0,
+                scores: {}
+            };
+        }
+
+        const room = rooms[roomId];
+
+        // Prevent joining if game already started
+        if (room.status !== 'waiting') {
+            socket.emit('error', '이미 게임이 시작되었습니다.');
+            return;
+        }
+
+        // Add player
+        const player = { id: socket.id, username, score: 0, ready: false };
+        room.players.push(player);
+        room.scores[socket.id] = 0;
+
+        // Notify everyone in room
+        io.to(roomId).emit('room_update', {
+            players: room.players,
+            host: room.host
+        });
+
+        console.log(`사용자 ${username}(${socket.id})가 방 ${roomId}에 입장했습니다.`);
+    });
+
+    socket.on('start_game', async ({ roomId, bookName, count }) => {
+        const room = rooms[roomId];
+        if (!room || room.host !== socket.id) return;
+
+        room.status = 'playing';
+        io.to(roomId).emit('game_started');
+
+        // Fetch words from DB
+        let connection;
+        try {
+            connection = await getConnection();
+            // Fetch random words from the book
+            // Note: This is a simplified query. For better randomness, we might need a different approach.
+            // Fetching more words than needed and shuffling in memory is safer for small datasets.
+            const result = await connection.execute(
+                `SELECT * FROM words WHERE book_name = :bookName ORDER BY DBMS_RANDOM.VALUE FETCH FIRST :count ROWS ONLY`,
+                { bookName, count: count || 20 },
+                { outFormat: oracledb.OUT_FORMAT_OBJECT }
+            );
+
+            room.words = result.rows;
+            room.currentWordIndex = 0;
+
+            // Send first word
+            io.to(roomId).emit('new_word', room.words[0]);
+
+        } catch (err) {
+            console.error('Error fetching game words:', err);
+            io.to(roomId).emit('error', '단어를 불러오는데 실패했습니다.');
+        } finally {
+            if (connection) await connection.close();
+        }
+    });
+
+    socket.on('submit_answer', ({ roomId, answer }) => {
+        const room = rooms[roomId];
+        if (!room || room.status !== 'playing') return;
+
+        const currentWord = room.words[room.currentWordIndex];
+        // Check answer (assuming English answer for Korean question or vice versa)
+        // For simplicity, let's assume we are testing English input for Korean meaning
+        // But the game might be different. Let's check both or specific based on game type.
+
+        // Normalize
+        const normalizedAnswer = answer.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+        const correctEnglish = currentWord.english.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+        const correctKorean = currentWord.korean.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+
+        const isCorrect = normalizedAnswer === correctEnglish || normalizedAnswer === correctKorean;
+
+        if (isCorrect) {
+            // Update score
+            room.scores[socket.id] += 10;
+            const player = room.players.find(p => p.id === socket.id);
+            if (player) player.score += 10;
+
+            io.to(roomId).emit('correct_answer', {
+                playerId: socket.id,
+                username: player.username,
+                score: player.score,
+                word: currentWord
+            });
+
+            // Next word
+            room.currentWordIndex++;
+            if (room.currentWordIndex < room.words.length) {
+                io.to(roomId).emit('new_word', room.words[room.currentWordIndex]);
+            } else {
+                // Game Over
+                room.status = 'finished';
+                io.to(roomId).emit('game_over', { scores: room.players });
+            }
+        }
+    });
+
+    // Survival specific: Wrong answer eliminates player
+    socket.on('survival_submit', ({ roomId, answer }) => {
+        const room = rooms[roomId];
+        if (!room || room.status !== 'playing') return;
+
+        const currentWord = room.words[room.currentWordIndex];
+        const normalizedAnswer = answer.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+        const correctEnglish = currentWord.english.trim().toLowerCase().replace(/[^a-z0-9가-힣]/g, '');
+
+        const isCorrect = normalizedAnswer === correctEnglish;
+
+        if (isCorrect) {
+            // Correct: Pass turn or just survive? 
+            // Survival usually means last one standing or time limit.
+            // Let's implement a simple "Speed Survival": First to answer gets point, wrong answer gets penalty?
+            // Or "Bomb": Answer to pass the bomb.
+
+            // Let's stick to the previous logic: Everyone types. First one gets point.
+            // But if it's survival, maybe wrong answer = out?
+
+            // For now, let's reuse the score logic but add "lives" if we want.
+            // Let's keep it simple: Score based.
+
+            room.scores[socket.id] += 10;
+            const player = room.players.find(p => p.id === socket.id);
+            if (player) player.score += 10;
+
+            io.to(roomId).emit('correct_answer', {
+                playerId: socket.id,
+                username: player.username,
+                score: player.score,
+                word: currentWord
+            });
+
+            // Next word
+            room.currentWordIndex++;
+            if (room.currentWordIndex < room.words.length) {
+                io.to(roomId).emit('new_word', room.words[room.currentWordIndex]);
+            } else {
+                room.status = 'finished';
+                io.to(roomId).emit('game_over', { scores: room.players });
+            }
+        } else {
+            // Wrong answer
+            io.to(roomId).emit('wrong_answer', { playerId: socket.id });
+        }
+    });
+
+    socket.on('leave_room', (roomId) => {
+        socket.leave(roomId);
+        const room = rooms[roomId];
+        if (room) {
+            const playerIndex = room.players.findIndex(p => p.id === socket.id);
+            if (playerIndex !== -1) {
+                room.players.splice(playerIndex, 1);
+                io.to(roomId).emit('room_update', { players: room.players, host: room.host });
+
+                if (room.players.length === 0) {
+                    delete rooms[roomId];
+                } else if (room.host === socket.id) {
+                    room.host = room.players[0].id;
+                    io.to(roomId).emit('new_host', room.host);
+                }
+            }
+        }
     });
 });
 
